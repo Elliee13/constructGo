@@ -11,3 +11,7 @@
 export type DriverDecision = 'pending' | 'accepted' | 'declined';
 
 export type OrderActor = 'customer' | 'driver' | 'store_owner';
+
+export type PaymentMethod = 'cod' | 'gcash' | 'maya';
+
+export type PaymentStatus = 'pending' | 'paid' | 'failed';

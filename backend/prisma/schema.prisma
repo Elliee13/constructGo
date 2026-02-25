@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PaymentOrder {
+  id            String          @id @default(uuid()) @db.Uuid
+  localOrderId  String
+  localOrderCode String
+  amountCents   Int
+  currency      String          @default("PHP")
+  status        String          @default("pending")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  payment       PaymongoPayment?
+
+  @@index([localOrderId])
+  @@map("payment_orders")
+}
+
+model PaymongoPayment {
+  id                String      @id @default(uuid()) @db.Uuid
+  paymentOrderId    String      @unique @db.Uuid
+  checkoutSessionId String      @unique
+  checkoutUrl       String
+  paymongoPaymentId String?
+  status            String      @default("pending")
+  paidAt            DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  paymentOrder      PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("paymongo_payments")
+}
+
+model WebhookEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  eventId    String   @unique
+  type       String
+  livemode   Boolean
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  @@map("webhook_events")
+}

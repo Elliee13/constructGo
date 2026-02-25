@@ -11,6 +11,12 @@
     "build:android:demo": "eas build -p android --profile demo --clear-cache",
     "export:web": "expo export --platform web && node scripts/postexport-web.mjs",
     "serve:web": "npx serve dist"
+    ,
+    "backend:install": "npm --prefix backend install",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:build": "npm --prefix backend run build",
+    "backend:prisma:generate": "npm --prefix backend run prisma:generate",
+    "backend:prisma:migrate": "npm --prefix backend run prisma:migrate"
   },
   "dependencies": {
     "@expo-google-fonts/poppins": "^0.4.1",

@@ -8,7 +8,7 @@ import { useToastStore } from './toastStore';
 import { useDriverStore } from './driverStore';
 import { useProductStore } from './productStore';
 import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
-import type { DriverDecision, OrderActor, OrderStatus } from '../types/order';
+import type { DriverDecision, OrderActor, OrderStatus, PaymentMethod, PaymentStatus } from '../types/order';
 
 export type { OrderStatus } from '../types/order';
 
@@ -97,6 +97,11 @@ export type Order = {
   deliveryFeedback?: string;
   verifyChecklist?: VerifyChecklist;
   reportIssue?: boolean;
+  backendOrderId?: string;
+  paymentProvider?: 'paymongo';
+  paymentMethod?: PaymentMethod;
+  paymentStatus?: PaymentStatus;
+  paymentCheckoutUrl?: string;
   inventory: OrderInventory;
   pack: OrderPack;
   substitutions: Record<string, OrderSubstitution>;
@@ -127,6 +132,16 @@ interface OrderState {
       declinedByDriverIds?: string[];
     }
   ) => void;
+  attachPaymentMeta: (
+    orderId: string,
+    meta: {
+      backendOrderId: string;
+      paymentCheckoutUrl: string;
+      paymentMethod: Exclude<PaymentMethod, 'cod'>;
+      paymentStatus?: PaymentStatus;
+    }
+  ) => void;
+  updatePaymentStatusByBackendOrderId: (backendOrderId: string, status: PaymentStatus) => void;
   acceptStoreOrder: (orderId: string) => boolean;
   rejectStoreOrder: (orderId: string, reason?: string) => boolean;
   markPreparing: (orderId: string) => boolean;
@@ -346,6 +361,11 @@ const normalizeOrder = (input: Partial<Order> & { id: string; code: string }): O
     deliveryFeedback: input.deliveryFeedback ?? '',
     verifyChecklist: { ...defaultChecklist, ...(input.verifyChecklist ?? {}) },
     reportIssue: Boolean(input.reportIssue),
+    backendOrderId: input.backendOrderId,
+    paymentProvider: input.paymentProvider,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: input.paymentStatus,
+    paymentCheckoutUrl: input.paymentCheckoutUrl,
     inventory: {
       reserved: Boolean(input.inventory?.reserved),
       reservedAt: input.inventory?.reservedAt,
@@ -432,6 +452,13 @@ const recalcTotals = (order: Order, items: OrderItem[]) => {
   return { subtotal, total };
 };
 
+const inferPaymentMethod = (payment: string): PaymentMethod => {
+  const normalized = payment.trim().toLowerCase();
+  if (normalized.includes('gcash')) return 'gcash';
+  if (normalized.includes('maya')) return 'maya';
+  return 'cod';
+};
+
 export const useOrderStore = create<OrderState>()(
   persist(
     (set, get) => ({
@@ -495,6 +522,8 @@ export const useOrderStore = create<OrderState>()(
           status: 'Pending',
           address,
           payment,
+          paymentMethod: inferPaymentMethod(payment),
+          paymentStatus: inferPaymentMethod(payment) === 'cod' ? 'paid' : 'pending',
           createdAt: new Date().toISOString(),
           driverId: driver.id,
           driverName: driver.name,
@@ -587,6 +616,34 @@ export const useOrderStore = create<OrderState>()(
                   assignedDriverName: patch.assignedDriverName,
                   driverDecision: patch.driverDecision ?? order.driverDecision,
                   declinedByDriverIds: patch.declinedByDriverIds ?? order.declinedByDriverIds,
+                }
+              : order
+          ),
+        });
+      },
+      attachPaymentMeta: (orderId, meta) => {
+        set({
+          orders: get().orders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  backendOrderId: meta.backendOrderId,
+                  paymentProvider: 'paymongo',
+                  paymentMethod: meta.paymentMethod,
+                  paymentStatus: meta.paymentStatus ?? 'pending',
+                  paymentCheckoutUrl: meta.paymentCheckoutUrl,
+                }
+              : order
+          ),
+        });
+      },
+      updatePaymentStatusByBackendOrderId: (backendOrderId, status) => {
+        set({
+          orders: get().orders.map((order) =>
+            order.backendOrderId === backendOrderId
+              ? {
+                  ...order,
+                  paymentStatus: status,
                 }
               : order
           ),

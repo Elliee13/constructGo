@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, ScrollView, Text, TouchableOpacity, View, Platform, StatusBar } from 'react-native';
+import { ActivityIndicator, Linking, SafeAreaView, ScrollView, Text, TouchableOpacity, View, Platform, StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ import { useOrderStore } from '../../stores/orderStore';
 import { useToastStore } from '../../stores/toastStore';
 import useHideTabs from '../../navigation/useHideTabs';
 import { formatPrice } from '../../utils/format';
+import { createCheckout, getOrderStatus, type BackendOrderStatus } from '../../api/paymentsService';
 
 const DELIVERY_OPTIONS = [
   { label: 'Priority', fee: 50 },
@@ -32,10 +33,13 @@ const CheckoutScreen = () => {
   const syncWithInventory = useCartStore((s) => s.syncWithInventory);
   const products = useProductStore((s) => s.products);
   const createOrderFromCart = useOrderStore((s) => s.createOrderFromCart);
+  const attachPaymentMeta = useOrderStore((s) => s.attachPaymentMeta);
+  const updatePaymentStatusByBackendOrderId = useOrderStore((s) => s.updatePaymentStatusByBackendOrderId);
   const showToast = useToastStore((s) => s.showToast);
 
   const [deliveryOption, setDeliveryOption] = useState(DELIVERY_OPTIONS[1]);
   const [address, setAddress] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'gcash' | 'maya'>('cod');
   const [isPlacing, setIsPlacing] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -69,6 +73,7 @@ const CheckoutScreen = () => {
   const subtotal = selectedItems.reduce((sum, item) => sum + unitPrice(item.productId, item.selectedOptions) * item.qty, 0);
   const deliveryFee = 50;
   const total = subtotal + deliveryFee + deliveryOption.fee;
+  const amountCents = Math.max(2000, Math.round(total * 100));
 
   const validateStock = () => {
     if (selectedItems.length === 0) {
@@ -91,7 +96,26 @@ const CheckoutScreen = () => {
     return { ok: true as const };
   };
 
-  const handlePlaceOrder = () => {
+  const pollPaymentStatus = async (backendOrderId: string) => {
+    const timeoutMs = 120000;
+    const intervalMs = 3000;
+    const started = Date.now();
+    let latest: BackendOrderStatus = 'pending';
+
+    while (Date.now() - started < timeoutMs) {
+      const response = await getOrderStatus(backendOrderId);
+      latest = response.status;
+      updatePaymentStatusByBackendOrderId(backendOrderId, latest);
+      if (latest === 'paid' || latest === 'failed') {
+        return latest;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    return latest;
+  };
+
+  const handlePlaceOrder = async () => {
     if (isPlacing) return;
 
     const validation = validateStock();
@@ -102,15 +126,65 @@ const CheckoutScreen = () => {
     }
 
     setIsPlacing(true);
-    const order = createOrderFromCart(selectedItems, deliveryOption.label, address, 'Cash on Delivery', unitPrice);
+    const paymentLabel =
+      paymentMethod === 'gcash' ? 'GCash' : paymentMethod === 'maya' ? 'Maya' : 'Cash on Delivery';
+    const order = createOrderFromCart(selectedItems, deliveryOption.label, address, paymentLabel, unitPrice);
 
     if (!order) {
       setIsPlacing(false);
       return;
     }
+    if (paymentMethod === 'cod') {
+      clearAfterOrder(selectedItems.map((item) => item.id));
+      setIsPlacing(false);
+      navigation.replace('LoadingOrder', { orderId: order.id });
+      return;
+    }
 
-    clearAfterOrder(selectedItems.map((item) => item.id));
-    navigation.replace('LoadingOrder', { orderId: order.id });
+    try {
+      const checkout = await createCheckout({
+        localOrderId: order.id,
+        localOrderCode: order.code,
+        amountCents,
+      });
+
+      attachPaymentMeta(order.id, {
+        backendOrderId: checkout.backendOrderId,
+        paymentCheckoutUrl: checkout.checkoutUrl,
+        paymentMethod,
+        paymentStatus: 'pending',
+      });
+
+      clearAfterOrder(selectedItems.map((item) => item.id));
+      await Linking.openURL(checkout.checkoutUrl);
+      const paymentStatus = await pollPaymentStatus(checkout.backendOrderId);
+
+      if (paymentStatus === 'paid') {
+        showToast({
+          type: 'success',
+          title: 'Payment confirmed',
+          message: `${order.code} payment received.`,
+        });
+        navigation.replace('LoadingOrder', { orderId: order.id });
+        return;
+      }
+
+      showToast({
+        type: 'warning',
+        title: 'Payment pending',
+        message: `Payment for ${order.code} is not confirmed yet.`,
+      });
+      navigation.goBack();
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: 'Payment error',
+        message: error instanceof Error ? error.message : 'Unable to start payment checkout.',
+      });
+      navigation.goBack();
+    } finally {
+      setIsPlacing(false);
+    }
   };
 
   const topInset = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
@@ -204,7 +278,73 @@ const CheckoutScreen = () => {
 
           <View style={{ marginTop: 16 }}>
             <Text style={{ fontFamily: typography.fonts.semibold, color: colors.dark }}>Payment</Text>
-            <Text style={{ marginTop: 6, fontFamily: typography.fonts.regular, color: colors.gray600 }}>Cash on Delivery</Text>
+            <View style={{ marginTop: 10, gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => setPaymentMethod('cod')}
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: paymentMethod === 'cod' ? colors.dark : colors.gray300,
+                  backgroundColor: paymentMethod === 'cod' ? colors.dark : colors.white,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fonts.medium,
+                    color: paymentMethod === 'cod' ? colors.white : colors.dark,
+                  }}
+                >
+                  Cash on Delivery
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setPaymentMethod('gcash')}
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: paymentMethod === 'gcash' ? colors.dark : colors.gray300,
+                  backgroundColor: paymentMethod === 'gcash' ? colors.dark : colors.white,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fonts.medium,
+                    color: paymentMethod === 'gcash' ? colors.white : colors.dark,
+                  }}
+                >
+                  Pay with GCash
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setPaymentMethod('maya')}
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: paymentMethod === 'maya' ? colors.dark : colors.gray300,
+                  backgroundColor: paymentMethod === 'maya' ? colors.dark : colors.white,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fonts.medium,
+                    color: paymentMethod === 'maya' ? colors.white : colors.dark,
+                  }}
+                >
+                  Pay with Maya
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {paymentMethod !== 'cod' ? (
+              <Text style={{ marginTop: 8, fontFamily: typography.fonts.regular, color: colors.gray600 }}>
+                Checkout amount sent to backend: {formatPrice(amountCents / 100)}
+              </Text>
+            ) : null}
           </View>
         </View>
       </ScrollView>
@@ -225,7 +365,11 @@ const CheckoutScreen = () => {
             <ActivityIndicator size="small" color={colors.white} />
           ) : (
             <Text style={{ fontFamily: typography.fonts.semibold, color: isPlacing || selectedItems.length === 0 ? colors.gray600 : colors.white }}>
-              Place Order
+              {paymentMethod === 'cod'
+                ? 'Place Order'
+                : paymentMethod === 'gcash'
+                  ? 'Pay with GCash'
+                  : 'Pay with Maya'}
             </Text>
           )}
         </TouchableOpacity>
