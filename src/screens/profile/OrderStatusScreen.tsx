@@ -89,6 +89,17 @@ const OrderStatusScreen = () => {
   const canCancel = ['Driver Requested', 'Pending', 'Processing', 'Preparing', 'Ready for Pickup'].includes(order.status);
   const canTrack = order.status === 'Out for Delivery';
   const canMessageDriver = order.status === 'Out for Delivery' && Boolean(order.assignedDriverId);
+  const paymentMethod = (order.paymentMethod ?? '').toLowerCase();
+  const fallbackPayment = (order.payment ?? '').toLowerCase();
+  const isNonCodPayment =
+    (paymentMethod && paymentMethod !== 'cod') ||
+    fallbackPayment.includes('gcash') ||
+    fallbackPayment.includes('maya');
+  const paymentStatus = order.paymentStatus ?? 'pending';
+  const paymentStatusColor =
+    paymentStatus === 'paid' ? '#2E7D32' : paymentStatus === 'failed' ? '#B3261E' : '#B37B00';
+  const paymentStatusBg =
+    paymentStatus === 'paid' ? '#DFF2E1' : paymentStatus === 'failed' ? '#FCE8E8' : '#FFF2C6';
   const baseStatusIndex =
     order.status === 'Cancelled'
       ? order.driverDecision === 'accepted'
@@ -198,6 +209,28 @@ const OrderStatusScreen = () => {
             <View style={{ marginTop: 8 }}>
               <StatusPill status={order.status} size="sm" />
             </View>
+            {isNonCodPayment ? (
+              <View
+                style={{
+                  marginTop: 8,
+                  alignSelf: 'flex-start',
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  backgroundColor: paymentStatusBg,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fonts.medium,
+                    fontSize: 11,
+                    color: paymentStatusColor,
+                  }}
+                >
+                  Payment: {paymentStatus.charAt(0).toUpperCase() + paymentStatus.slice(1)}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={{ marginTop: 16 }}>
