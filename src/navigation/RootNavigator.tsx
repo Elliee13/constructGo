@@ -18,6 +18,7 @@ import { useStoreOwnerAuthStore } from '../stores/storeOwnerAuthStore';
 import { useAdminAuthStore } from '../stores/adminAuthStore';
 import { useSupabaseAuthStore } from '../stores/supabaseAuthStore';
 import { useProfileStore } from '../stores/profileStore';
+import DevSessionBadge from '../components/DevSessionBadge';
 import RoleSelectScreen from '../screens/role/RoleSelectScreen';
 import ComingSoonScreen from '../screens/role/ComingSoonScreen';
 
@@ -97,6 +98,7 @@ const RootNavigator = () => {
         )}
       </NavigationContainer>
       <Toast />
+      {__DEV__ ? <DevSessionBadge /> : null}
     </>
   );
 };
