@@ -1,3 +1,5 @@
+import { getAccessToken } from '../stores/supabaseAuthStore';
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 const DEMO_API_KEY = process.env.EXPO_PUBLIC_DEMO_API_KEY?.trim();
 
@@ -20,7 +22,10 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
     Accept: 'application/json',
   };
 
-  if (DEMO_API_KEY) {
+  const token = getAccessToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (__DEV__ && DEMO_API_KEY) {
     headers.Authorization = `Bearer ${DEMO_API_KEY}`;
   }
 

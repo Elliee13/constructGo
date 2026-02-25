@@ -90,6 +90,28 @@ const PhoneInputScreen = () => {
                 Continue with Google
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('SupabaseCustomerSignIn')}
+              style={{
+                marginTop: 10,
+                height: 52,
+                borderRadius: radii.md,
+                borderWidth: 1,
+                borderColor: colors.dark,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: typography.fonts.medium,
+                  fontSize: typography.sizes.md,
+                  color: colors.dark,
+                }}
+              >
+                Continue with Email (Supabase)
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={[layout.container, { marginBottom: 8 }]}> 

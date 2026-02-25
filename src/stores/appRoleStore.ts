@@ -12,6 +12,8 @@ import { useDriverOrdersStore } from './driverOrdersStore';
 import { useStoreOwnerAuthStore } from './storeOwnerAuthStore';
 import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
 import { useAdminAuthStore } from './adminAuthStore';
+import { signOutSupabase } from './supabaseAuthStore';
+import { useProfileStore } from './profileStore';
 
 export type AppRole = 'customer' | 'driver' | 'store_owner' | 'admin';
 
@@ -49,6 +51,8 @@ export const useAppRoleStore = create<AppRoleState>()(
         useStoreOwnerAuthStore.getState().clear();
         useStoreOwnerProfileStore.getState().clear();
         useAdminAuthStore.getState().clear();
+        useProfileStore.getState().clear();
+        await signOutSupabase();
         set({ appRole: null });
 
         await AsyncStorage.multiRemove([

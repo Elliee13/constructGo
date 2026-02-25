@@ -4,6 +4,7 @@ import { useFonts, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, P
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
+import { initSupabaseAuthListener } from './src/stores/supabaseAuthStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -20,6 +21,10 @@ export default function App() {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded]);
+
+  useEffect(() => {
+    initSupabaseAuthListener();
+  }, []);
 
   if (!fontsLoaded) {
     return null;

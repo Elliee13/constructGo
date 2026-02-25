@@ -6,6 +6,7 @@ import AppButton from '../../components/AppButton';
 import { layout } from '../../theme/layout';
 import { colors, typography } from '../../theme/theme';
 import { useDriverAuthStore } from '../../stores/driverAuthStore';
+import { useProfileStore } from '../../stores/profileStore';
 
 const DriverSignInScreen = () => {
   const [phone, setPhone] = useState('');
@@ -50,6 +51,7 @@ const DriverSignInScreen = () => {
             onPress={() => {
               setStorePhone(phone.trim());
               setName(firstName.trim() || 'Miguel', lastName.trim() || 'Santos');
+              useProfileStore.getState().ensureProfileForRole('driver');
               login();
             }}
           />

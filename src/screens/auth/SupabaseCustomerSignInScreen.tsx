@@ -1,42 +1,51 @@
 import React, { useState } from 'react';
 import { Platform, SafeAreaView, StatusBar, Text, View } from 'react-native';
-import AppButton from '../../components/AppButton';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AppInput from '../../components/AppInput';
+import AppButton from '../../components/AppButton';
 import { layout } from '../../theme/layout';
 import { colors, typography } from '../../theme/theme';
-import { useStoreOwnerAuthStore } from '../../stores/storeOwnerAuthStore';
+import type { AuthStackParamList } from '../../navigation/AuthStack';
 import { signInWithSupabaseEmail, signUpWithSupabaseEmail } from '../../stores/supabaseAuthStore';
 import { useProfileStore } from '../../stores/profileStore';
 import { useToastStore } from '../../stores/toastStore';
 
-const StoreOwnerSignInScreen = () => {
-  const signIn = useStoreOwnerAuthStore((s) => s.signIn);
-  const showToast = useToastStore((s) => s.showToast);
-  const [email, setEmail] = useState('owner@constructgo.app');
-  const [password, setPassword] = useState('password123');
+const SupabaseCustomerSignInScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_in');
   const [loading, setLoading] = useState(false);
+  const showToast = useToastStore((s) => s.showToast);
 
   const topInset = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
 
-  const handleSignIn = async () => {
+  const handleSubmit = async () => {
     if (loading) return;
     if (!email.trim() || !password.trim()) return;
 
     setLoading(true);
     try {
-      try {
+      if (mode === 'sign_in') {
         await signInWithSupabaseEmail(email.trim(), password);
-      } catch {
+      } else {
         await signUpWithSupabaseEmail(email.trim(), password);
       }
-      await useProfileStore.getState().ensureProfileForRole('store_owner');
-      signIn(email, password);
-    } catch {
-      signIn(email, password);
+
+      await useProfileStore.getState().ensureProfileForRole('customer');
+
       showToast({
-        type: 'warning',
-        title: 'Supabase unavailable',
-        message: 'Signed in with local fallback mode.',
+        type: 'success',
+        title: mode === 'sign_in' ? 'Signed in' : 'Account created',
+        message: 'Supabase session active for customer role.',
+      });
+      navigation.goBack();
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: 'Authentication failed',
+        message: error instanceof Error ? error.message : 'Unable to sign in with Supabase.',
       });
     } finally {
       setLoading(false);
@@ -47,10 +56,10 @@ const StoreOwnerSignInScreen = () => {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.white, paddingTop: topInset }}>
       <View style={[layout.container, { flex: 1, paddingTop: 24 }]}> 
         <Text style={{ fontFamily: typography.fonts.bold, fontSize: 26, color: colors.dark }}>
-          Store Owner Sign In
+          Customer Supabase Auth
         </Text>
         <Text style={{ marginTop: 8, fontFamily: typography.fonts.regular, fontSize: 13, color: colors.gray600 }}>
-          Manage incoming orders and product catalog.
+          Email/password login for incremental migration.
         </Text>
 
         <View style={{ marginTop: 20, gap: 12 }}>
@@ -69,10 +78,27 @@ const StoreOwnerSignInScreen = () => {
           />
         </View>
 
+        <View style={{ marginTop: 12, flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <AppButton
+              title="Sign In"
+              variant={mode === 'sign_in' ? 'primary' : 'secondary'}
+              onPress={() => setMode('sign_in')}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <AppButton
+              title="Sign Up"
+              variant={mode === 'sign_up' ? 'primary' : 'secondary'}
+              onPress={() => setMode('sign_up')}
+            />
+          </View>
+        </View>
+
         <View style={{ marginTop: 'auto', marginBottom: 24 }}>
           <AppButton
-            title="Sign In"
-            onPress={handleSignIn}
+            title={mode === 'sign_in' ? 'Continue with Supabase' : 'Create account with Supabase'}
+            onPress={handleSubmit}
             showArrow
             loading={loading}
             disabled={!email.trim() || !password.trim()}
@@ -83,4 +109,4 @@ const StoreOwnerSignInScreen = () => {
   );
 };
 
-export default StoreOwnerSignInScreen;
+export default SupabaseCustomerSignInScreen;

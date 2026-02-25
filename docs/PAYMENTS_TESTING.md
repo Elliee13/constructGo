@@ -13,7 +13,9 @@ This guide sets up **test-mode payments** for ConstructGo using a backend servic
 
 ### Backend (`backend/.env`)
 - `DATABASE_URL` = Supabase Postgres connection string
-- `DEMO_API_KEY` = shared demo bearer key
+- `SUPABASE_URL` = Supabase project URL
+- `SUPABASE_ANON_KEY` = Supabase anon key
+- `SUPABASE_SERVICE_ROLE_KEY` = Supabase service role key (system/server usage)
 - `PAYMONGO_SECRET_KEY` = PayMongo test secret key
 - `PAYMONGO_WEBHOOK_SECRET` = PayMongo webhook secret
 - `PAYMONGO_SUCCESS_URL` = redirect URL after success (test placeholder is fine)
@@ -22,7 +24,9 @@ This guide sets up **test-mode payments** for ConstructGo using a backend servic
 
 ### Mobile (`.env` for Expo)
 - `EXPO_PUBLIC_API_BASE_URL` = backend base URL (example: `http://192.168.1.5:4000`)
-- `EXPO_PUBLIC_DEMO_API_KEY` = same value as backend `DEMO_API_KEY`
+- `EXPO_PUBLIC_SUPABASE_URL` = Supabase project URL
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` = Supabase anon key
+- `EXPO_PUBLIC_DEMO_API_KEY` = optional dev fallback only (used only when no Supabase token)
 
 ## 3) Local Run Commands
 
@@ -49,16 +53,18 @@ This guide sets up **test-mode payments** for ConstructGo using a backend servic
 ## 5) Test Flow
 1. Customer proceeds to Checkout.
 2. Select `Pay with GCash` or `Pay with Maya`.
-3. App creates local order + calls backend `/payments/checkout`.
-4. Backend creates PayMongo Checkout Session and returns URL.
-5. App opens checkout URL.
-6. Complete payment in PayMongo test flow.
-7. Webhook updates DB status to `paid`.
-8. App polling sees `paid` and continues existing order flow.
+3. Ensure user is authenticated with Supabase (token attached by mobile API client).
+4. App creates local order + calls backend `/payments/checkout`.
+5. Backend creates PayMongo Checkout Session and returns URL.
+6. App opens checkout URL.
+7. Complete payment in PayMongo test flow.
+8. Webhook updates DB status to `paid`.
+9. App polling sees `paid` and continues existing order flow.
 
 ## 6) Troubleshooting
 - `401 Unauthorized` from backend:
-  - Check `EXPO_PUBLIC_DEMO_API_KEY` matches backend `DEMO_API_KEY`.
+  - Ensure the mobile session has a valid Supabase access token.
+  - Check `SUPABASE_URL` and `SUPABASE_ANON_KEY` are correct in backend env.
 - Polling remains `pending`:
   - Verify webhook URL points to current ngrok URL.
   - Verify webhook secret matches backend env.
@@ -77,9 +83,8 @@ This guide sets up **test-mode payments** for ConstructGo using a backend servic
 - `OrderStatusScreen` performs a one-time refresh on mount for non-COD orders with `paymentStatus = pending`.
 - If backend already marked `paid`/`failed`, the local badge updates automatically.
 
-## 8) Migration Note (Later: Replace DEMO_API_KEY)
-Current demo auth uses a shared API key. For production-ready security:
-- Replace demo bearer key with Supabase Auth JWT verification on backend.
-- Validate user identity + role per request.
-- Add row-level authorization policies (RLS) in Supabase.
+## 8) Auth & RLS Note
+- Protected payment endpoints now require a Supabase JWT.
+- Backend verifies JWT by calling Supabase Auth user endpoint.
+- `payment_orders` rows are user-scoped (`user_id`) and reads are restricted to owner.
 - Keep PayMongo secret/webhook logic backend-only.

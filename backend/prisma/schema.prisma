@@ -9,6 +9,7 @@ datasource db {
 
 model PaymentOrder {
   id            String          @id @default(uuid()) @db.Uuid
+  userId        String          @map("user_id") @db.Uuid
   localOrderId  String
   localOrderCode String
   amountCents   Int
@@ -18,6 +19,7 @@ model PaymentOrder {
   updatedAt     DateTime        @updatedAt
   payment       PaymongoPayment?
 
+  @@index([userId])
   @@index([localOrderId])
   @@map("payment_orders")
 }
@@ -47,4 +49,13 @@ model WebhookEvent {
   receivedAt DateTime @default(now())
 
   @@map("webhook_events")
+}
+
+model Profile {
+  id        String   @id @db.Uuid
+  email     String?
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("profiles")
 }

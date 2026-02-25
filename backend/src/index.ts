@@ -7,21 +7,29 @@ const prisma = new PrismaClient();
 const app = express();
 
 const PORT = Number(process.env.PORT ?? 4000);
-const DEMO_API_KEY = process.env.DEMO_API_KEY ?? '';
 const PAYMONGO_SECRET_KEY = process.env.PAYMONGO_SECRET_KEY ?? '';
 const PAYMONGO_WEBHOOK_SECRET = process.env.PAYMONGO_WEBHOOK_SECRET ?? '';
 const PAYMONGO_SUCCESS_URL = process.env.PAYMONGO_SUCCESS_URL ?? 'https://example.com/success';
 const PAYMONGO_CANCEL_URL = process.env.PAYMONGO_CANCEL_URL ?? 'https://example.com/cancel';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 const PAYMONGO_BASE_URL = 'https://api.paymongo.com/v1';
 
-if (!DEMO_API_KEY) {
-  throw new Error('Missing DEMO_API_KEY');
-}
 if (!PAYMONGO_SECRET_KEY) {
   throw new Error('Missing PAYMONGO_SECRET_KEY');
 }
 if (!PAYMONGO_WEBHOOK_SECRET) {
   throw new Error('Missing PAYMONGO_WEBHOOK_SECRET');
+}
+if (!SUPABASE_URL) {
+  throw new Error('Missing SUPABASE_URL');
+}
+if (!SUPABASE_ANON_KEY) {
+  throw new Error('Missing SUPABASE_ANON_KEY');
+}
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 }
 
 app.use('/webhooks/paymongo', express.raw({ type: 'application/json' }));
@@ -35,14 +43,46 @@ type CheckoutBody = {
   amountCents?: number;
 };
 
-const requireDemoAuth = (req: Request, res: Response, next: NextFunction) => {
+type AuthenticatedRequest = Request & {
+  user?: {
+    id: string;
+    email?: string | null;
+  };
+};
+
+const requireSupabaseUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.header('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  if (!token || token !== DEMO_API_KEY) {
+  if (!token) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-  next();
+
+  try {
+    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const user = (await response.json()) as { id?: string; email?: string | null };
+    if (!user?.id) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    req.user = { id: user.id, email: user.email ?? null };
+    next();
+  } catch {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
 };
 
 const toValidAmountCents = (value: unknown): number => {
@@ -215,7 +255,7 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/payments/checkout', requireDemoAuth, async (req: Request<{}, {}, CheckoutBody>, res) => {
+app.post('/payments/checkout', requireSupabaseUser, async (req: AuthenticatedRequest & Request<{}, {}, CheckoutBody>, res) => {
   try {
     const localOrderId = req.body.localOrderId?.trim();
     const localOrderCode = req.body.localOrderCode?.trim();
@@ -229,6 +269,7 @@ app.post('/payments/checkout', requireDemoAuth, async (req: Request<{}, {}, Chec
 
     const paymentOrder = await prisma.paymentOrder.create({
       data: {
+        userId: req.user!.id,
         localOrderId,
         localOrderCode,
         amountCents,
@@ -263,12 +304,12 @@ app.post('/payments/checkout', requireDemoAuth, async (req: Request<{}, {}, Chec
   }
 });
 
-app.get('/orders/:backendOrderId', requireDemoAuth, async (req, res) => {
+app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: AuthenticatedRequest, res) => {
   try {
     const backendOrderId = req.params.backendOrderId;
 
-    const order = await prisma.paymentOrder.findUnique({
-      where: { id: backendOrderId },
+    const order = await prisma.paymentOrder.findFirst({
+      where: { id: backendOrderId, userId: req.user!.id },
       include: {
         payment: true,
       },

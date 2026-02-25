@@ -5,13 +5,43 @@ import AppInput from '../../components/AppInput';
 import { layout } from '../../theme/layout';
 import { colors, typography } from '../../theme/theme';
 import { useAdminAuthStore } from '../../stores/adminAuthStore';
+import { signInWithSupabaseEmail, signUpWithSupabaseEmail } from '../../stores/supabaseAuthStore';
+import { useProfileStore } from '../../stores/profileStore';
+import { useToastStore } from '../../stores/toastStore';
 
 const AdminSignInScreen = () => {
   const signIn = useAdminAuthStore((s) => s.signIn);
+  const showToast = useToastStore((s) => s.showToast);
   const [email, setEmail] = useState('admin@constructgo.app');
   const [password, setPassword] = useState('password123');
+  const [loading, setLoading] = useState(false);
 
   const topInset = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
+
+  const handleSignIn = async () => {
+    if (loading) return;
+    if (!email.trim() || !password.trim()) return;
+
+    setLoading(true);
+    try {
+      try {
+        await signInWithSupabaseEmail(email.trim(), password);
+      } catch {
+        await signUpWithSupabaseEmail(email.trim(), password);
+      }
+      await useProfileStore.getState().ensureProfileForRole('admin');
+      signIn(email, password);
+    } catch {
+      signIn(email, password);
+      showToast({
+        type: 'warning',
+        title: 'Supabase unavailable',
+        message: 'Signed in with local fallback mode.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.white, paddingTop: topInset }}>
@@ -42,8 +72,9 @@ const AdminSignInScreen = () => {
         <View style={{ marginTop: 'auto', marginBottom: 24 }}>
           <AppButton
             title="Sign In"
-            onPress={() => signIn(email, password)}
+            onPress={handleSignIn}
             showArrow
+            loading={loading}
             disabled={!email.trim() || !password.trim()}
           />
         </View>
@@ -53,4 +84,3 @@ const AdminSignInScreen = () => {
 };
 
 export default AdminSignInScreen;
-
