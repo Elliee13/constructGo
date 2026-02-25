@@ -68,8 +68,16 @@ This guide sets up **test-mode payments** for ConstructGo using a backend servic
 - Payment amount mismatch:
   - App sends pesos, backend must use centavos integer (`round(pesos * 100)`).
   - Minimum demo amount enforced to `2000` cents (PHP 20).
+- Stuck `pending` after webhook:
+  - Webhook processing must be atomic: `webhook_events` insert and payment status updates are committed in one DB transaction.
+  - This prevents partial writes where an event is marked processed but status is never updated.
 
-## 7) Migration Note (Later: Replace DEMO_API_KEY)
+## 7) Mobile Behavior
+- Checkout still polls for up to 120 seconds after opening checkout URL.
+- `OrderStatusScreen` performs a one-time refresh on mount for non-COD orders with `paymentStatus = pending`.
+- If backend already marked `paid`/`failed`, the local badge updates automatically.
+
+## 8) Migration Note (Later: Replace DEMO_API_KEY)
 Current demo auth uses a shared API key. For production-ready security:
 - Replace demo bearer key with Supabase Auth JWT verification on backend.
 - Validate user identity + role per request.

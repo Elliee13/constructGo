@@ -16,6 +16,7 @@ import useHideTabs from '../../navigation/useHideTabs';
 import { formatPrice } from '../../utils/format';
 import CancelReasonModal from '../../components/CancelReasonModal';
 import StatusPill from '../../components/ui/StatusPill';
+import { getOrderStatus } from '../../api/paymentsService';
 
 const timelineStages = ['Pending', 'Processing', 'Preparing', 'Packed', 'Ready for Pickup', 'Out for Delivery', 'Delivered'] as const;
 const statusIndexMap: Record<string, number> = {
@@ -38,6 +39,7 @@ const OrderStatusScreen = () => {
   const acceptSubstitution = useOrderStore((s) => s.acceptSubstitution);
   const rejectSubstitution = useOrderStore((s) => s.rejectSubstitution);
   const startStatusSimulation = useOrderStore((s) => s.startStatusSimulation);
+  const updatePaymentStatusByBackendOrderId = useOrderStore((s) => s.updatePaymentStatusByBackendOrderId);
   const showToast = useToastStore((s) => s.showToast);
   const products = useCatalogStore((s) => s.products);
   const allProducts = useProductStore((s) => s.products);
@@ -45,6 +47,7 @@ const OrderStatusScreen = () => {
   const scrollRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
   const deliveredHandledRef = useRef(false);
+  const paymentRefreshHandledRef = useRef<string | null>(null);
   const [summaryY, setSummaryY] = useState(0);
   const [isCancelModalVisible, setIsCancelModalVisible] = useState(false);
   const [busySubstitutionLine, setBusySubstitutionLine] = useState<string | null>(null);
@@ -59,6 +62,35 @@ const OrderStatusScreen = () => {
     if (!order) return;
     ensureDriverFromOrder(order);
   }, [order, ensureDriverFromOrder]);
+
+  useEffect(() => {
+    if (!order) return;
+    if (!order.backendOrderId) return;
+    if ((order.paymentMethod ?? 'cod') === 'cod') return;
+    if (order.paymentStatus !== 'pending') return;
+    if (paymentRefreshHandledRef.current === order.id) return;
+
+    paymentRefreshHandledRef.current = order.id;
+    let isCancelled = false;
+
+    const refreshPendingStatus = async () => {
+      try {
+        const latest = await getOrderStatus(order.backendOrderId!);
+        if (isCancelled) return;
+        if (latest.status !== order.paymentStatus) {
+          updatePaymentStatusByBackendOrderId(order.backendOrderId!, latest.status);
+        }
+      } catch {
+        // Keep local status if refresh fails.
+      }
+    };
+
+    refreshPendingStatus();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [order, updatePaymentStatusByBackendOrderId]);
 
   useEffect(() => {
     if (order?.status === 'Delivered' && !deliveredHandledRef.current) {

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -207,6 +208,9 @@ const extractPaymongoPaymentId = (resource: any): string | null => {
   return typeof paymentId === 'string' ? paymentId : null;
 };
 
+const isPrismaUniqueConstraintError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -305,72 +309,85 @@ app.post('/webhooks/paymongo', async (req: DemoAuthedRequest, res) => {
       return;
     }
 
-    const existing = await prisma.webhookEvent.findUnique({ where: { eventId } });
-    if (existing) {
-      res.json({ ok: true, deduped: true });
-      return;
-    }
-
-    await prisma.webhookEvent.create({
-      data: {
-        eventId,
-        type,
-        livemode,
-        payload,
-      },
-    });
-
     const backendOrderId = extractBackendOrderId(resource);
     const checkoutSessionId = extractCheckoutSessionId(resource);
     const paymongoPaymentId = extractPaymongoPaymentId(resource);
-
-    let paymentOrderId: string | null = backendOrderId;
-
-    if (!paymentOrderId && checkoutSessionId) {
-      const payment = await prisma.paymongoPayment.findUnique({ where: { checkoutSessionId } });
-      paymentOrderId = payment?.paymentOrderId ?? null;
-    }
-
-    if (!paymentOrderId) {
-      res.json({ ok: true, ignored: true, reason: 'No matching payment order' });
-      return;
-    }
-
     const loweredType = type.toLowerCase();
     const isPaid = loweredType.includes('paid');
     const isFailed = loweredType.includes('failed') || loweredType.includes('expired') || loweredType.includes('cancel');
+    const result = await prisma.$transaction(async (tx) => {
+      try {
+        await tx.webhookEvent.create({
+          data: {
+            eventId,
+            type,
+            livemode,
+            payload,
+          },
+        });
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          return { deduped: true as const };
+        }
+        throw error;
+      }
 
-    if (isPaid) {
-      await prisma.$transaction([
-        prisma.paymentOrder.update({
+      let paymentOrderId: string | null = backendOrderId;
+
+      if (!paymentOrderId && checkoutSessionId) {
+        const payment = await tx.paymongoPayment.findUnique({ where: { checkoutSessionId } });
+        paymentOrderId = payment?.paymentOrderId ?? null;
+      }
+
+      if (!paymentOrderId) {
+        return { ignored: true as const, reason: 'No matching payment order' as const };
+      }
+
+      const currentOrder = await tx.paymentOrder.findUnique({ where: { id: paymentOrderId } });
+      if (!currentOrder) {
+        return { ignored: true as const, reason: 'Payment order not found' as const };
+      }
+
+      const orderAlreadyPaid = currentOrder.status === 'paid';
+
+      if (isPaid) {
+        await tx.paymentOrder.update({
           where: { id: paymentOrderId },
           data: { status: 'paid' },
-        }),
-        prisma.paymongoPayment.update({
+        });
+        await tx.paymongoPayment.update({
           where: { paymentOrderId },
           data: {
             status: 'paid',
             paidAt: new Date(),
             paymongoPaymentId: paymongoPaymentId ?? undefined,
           },
-        }),
-      ]);
-    } else if (isFailed) {
-      await prisma.$transaction([
-        prisma.paymentOrder.update({
+        });
+      } else if (isFailed && !orderAlreadyPaid) {
+        await tx.paymentOrder.update({
           where: { id: paymentOrderId },
           data: { status: 'failed' },
-        }),
-        prisma.paymongoPayment.update({
+        });
+        await tx.paymongoPayment.update({
           where: { paymentOrderId },
           data: {
             status: 'failed',
             paymongoPaymentId: paymongoPaymentId ?? undefined,
           },
-        }),
-      ]);
-    }
+        });
+      }
 
+      return { ok: true as const };
+    });
+
+    if (result.deduped) {
+      res.json({ ok: true, deduped: true });
+      return;
+    }
+    if (result.ignored) {
+      res.json({ ok: true, ignored: true, reason: result.reason });
+      return;
+    }
     res.json({ ok: true });
   } catch (error) {
     console.error('POST /webhooks/paymongo failed', error);
