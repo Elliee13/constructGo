@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { products as staticProducts } from '../data/products';
 import { zustandStorage } from '../utils/storage';
-import { apiRequest } from '../api/apiClient';
+import { API_BASE_URL, apiRequest } from '../api/apiClient';
 
 export type ProductReview = {
   id: string;
@@ -184,9 +184,12 @@ export const useProductStore = create<ProductState>()(
         set({ products: seed.map(normalizeProduct), hasSeeded: true });
       },
       fetchProducts: async () => {
+        console.log('[productStore] baseURL:', API_BASE_URL ?? '<missing>');
         const response = await apiRequest<{ products: RemoteProduct[] }>('/products');
         const next = Array.isArray(response.products) ? response.products.map(hydrateFromRemote) : [];
+        console.log('[productStore] fetched:', next.length);
         set({ products: next, hasSeeded: true });
+        console.log('[productStore] state products:', get().products.length);
       },
       fetchStoreOwnerProducts: async () => {
         const response = await apiRequest<{ products: RemoteProduct[] }>('/store/products');
@@ -298,7 +301,10 @@ export const useProductStore = create<ProductState>()(
         }));
       },
       clear: () => set({ products: staticNormalized, hasSeeded: true }),
-      reset: () => set({ products: [], hasSeeded: false }),
+      reset: () => {
+        set({ products: [], hasSeeded: false });
+        get().fetchProducts().catch(() => {});
+      },
     }),
     {
       name: 'product-store',

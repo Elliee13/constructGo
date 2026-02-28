@@ -18,11 +18,8 @@ const deriveCategories = (products: Product[]) => {
   return fromProducts.length > 0 ? fromProducts : seedCategories;
 };
 
-const getVisibleProducts = (products: Product[]) => {
-  const isStoreActive = useStoreOwnerProfileStore.getState().isActive;
-  if (!isStoreActive) return [];
-  return products.filter((product) => product.isActive !== false);
-};
+const getVisibleProducts = (products: Product[]) =>
+  products.filter((product) => product.isActive !== false);
 
 const syncCatalogFromSources = () => {
   const source = useProductStore.getState().products;
@@ -30,6 +27,7 @@ const syncCatalogFromSources = () => {
     products: getVisibleProducts(source),
     categories: deriveCategories(source),
   });
+  console.log('[catalogStore] visible products:', useCatalogStore.getState().products.length);
 };
 
 export const useCatalogStore = create<CatalogState>((set, get) => ({

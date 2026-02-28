@@ -1,7 +1,11 @@
 import { getAccessToken } from '../stores/supabaseAuthStore';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 const DEMO_API_KEY = process.env.EXPO_PUBLIC_DEMO_API_KEY?.trim();
+
+if (__DEV__) {
+  console.log('[apiClient] BASE_URL:', API_BASE_URL ?? '<missing>');
+}
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
