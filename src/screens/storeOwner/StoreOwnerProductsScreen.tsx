@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Platform, SafeAreaView, ScrollView, StatusBar, Switch, Text, TouchableOpacity, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AppInput from '../../components/AppInput';
 import { layout } from '../../theme/layout';
@@ -11,11 +11,18 @@ import { formatPrice } from '../../utils/format';
 const StoreOwnerProductsScreen = () => {
   const navigation = useNavigation<any>();
   const products = useProductStore((s) => s.products);
-  const setActive = useProductStore((s) => s.setActive);
-  const deleteProduct = useProductStore((s) => s.deleteProduct);
+  const setActiveRemote = useProductStore((s) => s.setActiveRemote);
+  const deleteProductRemote = useProductStore((s) => s.deleteProductRemote);
+  const fetchStoreOwnerProducts = useProductStore((s) => s.fetchStoreOwnerProducts);
 
   const [query, setQuery] = useState('');
   const topInset = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchStoreOwnerProducts().catch(() => {});
+    }, [fetchStoreOwnerProducts])
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,7 +91,7 @@ const StoreOwnerProductsScreen = () => {
                     <View style={{ alignItems: 'flex-end', justifyContent: 'space-between' }}>
                       <Switch
                         value={product.isActive}
-                        onValueChange={(value) => setActive(product.id, value)}
+                        onValueChange={(value) => setActiveRemote(product.id, value).catch(() => {})}
                         thumbColor={colors.white}
                         trackColor={{ false: colors.gray300, true: colors.dark }}
                       />
@@ -95,7 +102,7 @@ const StoreOwnerProductsScreen = () => {
                   </View>
 
                   <TouchableOpacity
-                    onPress={() => deleteProduct(product.id)}
+                    onPress={() => deleteProductRemote(product.id).catch(() => {})}
                     style={{ marginTop: 8, alignSelf: 'flex-start', borderRadius: 8, backgroundColor: '#FCE8E8', paddingHorizontal: 10, paddingVertical: 6 }}
                   >
                     <Text style={{ fontFamily: typography.fonts.medium, fontSize: 11, color: '#B3261E' }}>Delete</Text>

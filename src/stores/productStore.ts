@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { products as staticProducts } from '../data/products';
 import { zustandStorage } from '../utils/storage';
+import { apiRequest } from '../api/apiClient';
 
 export type ProductReview = {
   id: string;
@@ -73,14 +74,33 @@ type ProductState = {
   products: Product[];
   hasSeeded: boolean;
   seedFromStaticOnce: (seed: Product[]) => void;
+  fetchProducts: () => Promise<void>;
+  fetchStoreOwnerProducts: () => Promise<void>;
   addProduct: (product: Product) => void;
   updateProduct: (productId: string, patch: ProductPatch) => void;
   deleteProduct: (productId: string) => void;
+  deleteProductRemote: (productId: string) => Promise<void>;
   setActive: (productId: string, isActive: boolean) => void;
+  setActiveRemote: (productId: string, isActive: boolean) => Promise<void>;
   getProductById: (productId: string) => Product | undefined;
   reserveStock: (items: StockLineItem[]) => StockResult;
   restockStock: (items: StockLineItem[]) => void;
   clear: () => void;
+  reset: () => void;
+};
+
+type RemoteProduct = {
+  id: string;
+  storeId?: string;
+  name: string;
+  priceCents?: number;
+  category: string;
+  sku: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  images?: unknown;
+  stock?: number;
+  isActive?: boolean;
 };
 
 const normalizeProduct = (product: Product): Product => ({
@@ -93,6 +113,66 @@ const normalizeProduct = (product: Product): Product => ({
 });
 
 const staticNormalized = (staticProducts as Product[]).map(normalizeProduct);
+const staticById = new Map(staticNormalized.map((item) => [item.id, item]));
+const staticBySku = new Map(staticNormalized.map((item) => [item.sku, item]));
+
+const toNumberPrice = (priceCents?: number) => {
+  if (!Number.isFinite(priceCents)) return 0;
+  return Math.round((priceCents as number) / 100);
+};
+
+const toRemoteImageArray = (images: unknown, fallback: string[]) => {
+  if (!Array.isArray(images)) return fallback;
+  const valid = images.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return valid.length > 0 ? valid : fallback;
+};
+
+const hydrateFromRemote = (remote: RemoteProduct): Product => {
+  const template = staticById.get(remote.id) ?? staticBySku.get(remote.sku);
+  const fallbackImages = template?.images ?? (template?.image ? [template.image] : []);
+  const remoteImages = toRemoteImageArray(remote.images, fallbackImages);
+  const remotePrimary = remote.imageUrl || remoteImages[0] || template?.image || '';
+
+  const merged: Product = {
+    ...(template ?? {
+      id: remote.id,
+      storeId: remote.storeId ?? 'store-main',
+      name: remote.name,
+      price: toNumberPrice(remote.priceCents),
+      category: remote.category,
+      image: remotePrimary,
+      images: remoteImages.length > 0 ? remoteImages : [remotePrimary],
+      soldCount: 0,
+      rating: 4.5,
+      codAvailable: true,
+      model: remote.sku,
+      sku: remote.sku,
+      imageKeywords: [],
+      description: remote.description ?? '',
+      soldCountText: '0 sold',
+      keyFeatures: [],
+      whatsIncluded: '',
+      specs: [],
+      reviews: [],
+      recommendations: [],
+      stock: Math.max(0, Math.floor(remote.stock ?? 0)),
+      isActive: remote.isActive ?? true,
+    }),
+    id: remote.id,
+    storeId: remote.storeId ?? template?.storeId ?? 'store-main',
+    name: remote.name ?? template?.name ?? '',
+    price: toNumberPrice(remote.priceCents) || template?.price || 0,
+    category: remote.category ?? template?.category ?? 'Tools',
+    sku: remote.sku ?? template?.sku ?? remote.id,
+    description: remote.description ?? template?.description ?? '',
+    image: remotePrimary,
+    images: remoteImages.length > 0 ? remoteImages : [remotePrimary],
+    stock: Math.max(0, Math.floor(remote.stock ?? template?.stock ?? 0)),
+    isActive: remote.isActive ?? template?.isActive ?? true,
+  };
+
+  return normalizeProduct(merged);
+};
 
 export const useProductStore = create<ProductState>()(
   persist(
@@ -102,6 +182,16 @@ export const useProductStore = create<ProductState>()(
       seedFromStaticOnce: (seed) => {
         if (get().hasSeeded && get().products.length > 0) return;
         set({ products: seed.map(normalizeProduct), hasSeeded: true });
+      },
+      fetchProducts: async () => {
+        const response = await apiRequest<{ products: RemoteProduct[] }>('/products');
+        const next = Array.isArray(response.products) ? response.products.map(hydrateFromRemote) : [];
+        set({ products: next, hasSeeded: true });
+      },
+      fetchStoreOwnerProducts: async () => {
+        const response = await apiRequest<{ products: RemoteProduct[] }>('/store/products');
+        const next = Array.isArray(response.products) ? response.products.map(hydrateFromRemote) : [];
+        set({ products: next, hasSeeded: true });
       },
       addProduct: (product) => {
         set((state) => ({
@@ -121,12 +211,47 @@ export const useProductStore = create<ProductState>()(
           products: state.products.filter((item) => item.id !== productId),
         }));
       },
+      deleteProductRemote: async (productId) => {
+        const previous = get().products;
+        set({
+          products: previous.filter((item) => item.id !== productId),
+          hasSeeded: true,
+        });
+
+        try {
+          await apiRequest<{ ok: boolean }>(`/store/products/${productId}`, { method: 'DELETE' });
+          await get().fetchStoreOwnerProducts();
+        } catch (error) {
+          set({ products: previous, hasSeeded: true });
+          throw error;
+        }
+      },
       setActive: (productId, isActive) => {
         set((state) => ({
           products: state.products.map((item) =>
             item.id === productId ? { ...item, isActive } : item
           ),
         }));
+      },
+      setActiveRemote: async (productId, isActive) => {
+        const previous = get().products;
+        set({
+          products: previous.map((item) =>
+            item.id === productId ? { ...item, isActive } : item
+          ),
+          hasSeeded: true,
+        });
+
+        try {
+          await apiRequest<{ product: RemoteProduct }>(`/store/products/${productId}/active`, {
+            method: 'PATCH',
+            body: { isActive },
+          });
+          await get().fetchStoreOwnerProducts();
+        } catch (error) {
+          set({ products: previous, hasSeeded: true });
+          throw error;
+        }
       },
       getProductById: (productId) => get().products.find((item) => item.id === productId),
       reserveStock: (items) => {
@@ -173,6 +298,7 @@ export const useProductStore = create<ProductState>()(
         }));
       },
       clear: () => set({ products: staticNormalized, hasSeeded: true }),
+      reset: () => set({ products: [], hasSeeded: false }),
     }),
     {
       name: 'product-store',
@@ -187,10 +313,7 @@ export const useProductStore = create<ProductState>()(
           merged.products = staticNormalized;
           merged.hasSeeded = true;
         } else {
-          const persistedProducts = merged.products.map(normalizeProduct);
-          const existingIds = new Set(persistedProducts.map((item) => item.id));
-          const missingSeedProducts = staticNormalized.filter((item) => !existingIds.has(item.id));
-          merged.products = [...persistedProducts, ...missingSeedProducts];
+          merged.products = merged.products.map(normalizeProduct);
           merged.hasSeeded = true;
         }
 

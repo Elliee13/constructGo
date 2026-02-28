@@ -42,3 +42,4 @@ yarn-error.*
 
 # env files
 backend/.env
+.env

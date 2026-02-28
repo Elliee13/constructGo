@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
-import express, { type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import express, { type Request, type Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { prisma } from './lib/prisma.js';
+import { requireSupabaseUser, type AuthenticatedRequest } from './auth/requireSupabaseUser.js';
+import { productsRouter } from './routes/products.routes.js';
+import { seedProductsIfEmpty } from './seed/seedProducts.js';
 
-const prisma = new PrismaClient();
 const app = express();
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -34,6 +36,7 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 
 app.use('/webhooks/paymongo', express.raw({ type: 'application/json' }));
 app.use(express.json());
+app.use(productsRouter);
 
 type DemoAuthedRequest = Request & { rawBody?: Buffer };
 
@@ -41,48 +44,6 @@ type CheckoutBody = {
   localOrderId?: string;
   localOrderCode?: string;
   amountCents?: number;
-};
-
-type AuthenticatedRequest = Request & {
-  user?: {
-    id: string;
-    email?: string | null;
-  };
-};
-
-const requireSupabaseUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.header('authorization') ?? '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  if (!token) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
-  try {
-    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: SUPABASE_ANON_KEY,
-      },
-    });
-
-    if (!response.ok) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-
-    const user = (await response.json()) as { id?: string; email?: string | null };
-    if (!user?.id) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
-
-    req.user = { id: user.id, email: user.email ?? null };
-    next();
-  } catch {
-    res.status(401).json({ error: 'Unauthorized' });
-  }
 };
 
 const toValidAmountCents = (value: unknown): number => {
@@ -436,6 +397,14 @@ app.post('/webhooks/paymongo', async (req: DemoAuthedRequest, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`ConstructGo payments backend listening on :${PORT}`);
+const start = async () => {
+  await seedProductsIfEmpty();
+  app.listen(PORT, () => {
+    console.log(`ConstructGo payments backend listening on :${PORT}`);
+  });
+};
+
+start().catch((error) => {
+  console.error('Failed to start backend', error);
+  process.exit(1);
 });

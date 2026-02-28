@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, SafeAreaView, Text, TouchableOpacity, View, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ShopStackParamList } from '../../navigation/ShopStack';
 import { layout } from '../../theme/layout';
@@ -10,6 +10,7 @@ import { useCatalogStore } from '../../stores/catalogStore';
 import { useCartStore } from '../../stores/cartStore';
 import { useFavouritesStore } from '../../stores/favouritesStore';
 import { useToastStore } from '../../stores/toastStore';
+import { useProductStore } from '../../stores/productStore';
 import ProductCard from '../../components/ProductCard';
 import AdvancedFilterSheet from '../../components/AdvancedFilterSheet';
 import {
@@ -33,6 +34,7 @@ const ProductResultsScreen = () => {
   const [draftFilter, setDraftFilter] = useState<AdvancedFilterState>(createDefaultAdvancedFilterState());
   const allProducts = useCatalogStore((s) => s.products);
   const showToast = useToastStore((s) => s.showToast);
+  const fetchProducts = useProductStore((s) => s.fetchProducts);
   const products = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = !q ? allProducts : allProducts.filter((product) => product.name.toLowerCase().includes(q));
@@ -46,6 +48,12 @@ const ProductResultsScreen = () => {
   const activeFilterCount = countActiveFilters(advFilter, false);
 
   const topInset = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchProducts().catch(() => {});
+    }, [fetchProducts])
+  );
 
   const openFilter = () => {
     setDraftFilter(advFilter);

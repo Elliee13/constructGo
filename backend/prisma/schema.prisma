@@ -3,42 +3,75 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["public", "auth"]
+}
+
+model Product {
+  id          String    @id @default(uuid()) @db.Uuid
+  storeId     String
+  name        String
+  priceCents  Int
+  currency    String    @default("PHP")
+  category    String
+  sku         String
+  description String?
+  imageUrl    String?
+  images      Json?
+  stock       Int       @default(0)
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([storeId, sku])
+  @@index([storeId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("products")
+  @@schema("public")
 }
 
 model PaymentOrder {
-  id            String          @id @default(uuid()) @db.Uuid
-  userId        String          @map("user_id") @db.Uuid
-  localOrderId  String
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  localOrderId   String
   localOrderCode String
-  amountCents   Int
-  currency      String          @default("PHP")
-  status        String          @default("pending")
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  payment       PaymongoPayment?
+  amountCents    Int
+  currency       String   @default("PHP")
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  payment PaymongoPayment?
 
   @@index([userId])
   @@index([localOrderId])
   @@map("payment_orders")
+  @@schema("public")
 }
 
 model PaymongoPayment {
-  id                String      @id @default(uuid()) @db.Uuid
-  paymentOrderId    String      @unique @db.Uuid
-  checkoutSessionId String      @unique
-  checkoutUrl       String
-  paymongoPaymentId String?
-  status            String      @default("pending")
-  paidAt            DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  paymentOrder      PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid()) @db.Uuid
+
+  paymentOrderId    String  @unique @map("payment_order_id") @db.Uuid
+  checkoutSessionId String  @unique @map("checkout_session_id")
+  checkoutUrl       String  @map("checkout_url")
+  paymongoPaymentId String? @map("paymongo_payment_id")
+
+  status    String    @default("pending")
+  paidAt    DateTime? @map("paid_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  paymentOrder PaymentOrder @relation(fields: [paymentOrderId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@map("paymongo_payments")
+  @@schema("public")
 }
 
 model WebhookEvent {
@@ -50,6 +83,7 @@ model WebhookEvent {
   receivedAt DateTime @default(now())
 
   @@map("webhook_events")
+  @@schema("public")
 }
 
 model Profile {
@@ -59,4 +93,5 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("profiles")
+  @@schema("public")
 }

@@ -14,6 +14,7 @@ import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
 import { useAdminAuthStore } from './adminAuthStore';
 import { signOutSupabase } from './supabaseAuthStore';
 import { useProfileStore } from './profileStore';
+import { useProductStore } from './productStore';
 
 export type AppRole = 'customer' | 'driver' | 'store_owner' | 'admin';
 
@@ -32,6 +33,7 @@ export const useAppRoleStore = create<AppRoleState>()(
       switchRole: () => {
         // Role switch is non-destructive to keep one-time onboarding/login.
         useDriverOrdersStore.getState().clear();
+        useProductStore.getState().reset?.();
         set({ appRole: null });
       },
       signOutAll: async () => {
@@ -52,6 +54,7 @@ export const useAppRoleStore = create<AppRoleState>()(
         useStoreOwnerProfileStore.getState().clear();
         useAdminAuthStore.getState().clear();
         useProfileStore.getState().clear();
+        useProductStore.getState().reset?.();
         await signOutSupabase();
         set({ appRole: null });
 

@@ -55,6 +55,10 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
 useProductStore.getState().seedFromStaticOnce(seedProducts as Product[]);
 useCatalogStore.getState().syncFromProductStore();
+useProductStore
+  .getState()
+  .fetchProducts?.()
+  .catch(() => {});
 
 useProductStore.subscribe(() => {
   syncCatalogFromSources();
