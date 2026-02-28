@@ -76,11 +76,11 @@ model PaymongoPayment {
 
 model WebhookEvent {
   id         String   @id @default(uuid()) @db.Uuid
-  eventId    String   @unique
+  eventId    String   @unique @map("event_id")
   type       String
   livemode   Boolean
   payload    Json
-  receivedAt DateTime @default(now())
+  receivedAt DateTime @default(now()) @map("received_at")
 
   @@map("webhook_events")
   @@schema("public")

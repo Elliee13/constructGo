@@ -304,6 +304,11 @@ app.post('/webhooks/paymongo', async (req: DemoAuthedRequest, res) => {
     }
 
     const payload = JSON.parse(rawBody.toString('utf8'));
+    console.log('[paymongo-webhook] parsed', {
+      id: payload?.id,
+      type: payload?.type,
+      livemode: payload?.livemode,
+    });
     const { eventId, type, livemode, resource } = getEventCore(payload);
 
     if (!eventId || !type) {
