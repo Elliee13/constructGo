@@ -17,6 +17,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 const PAYMONGO_BASE_URL = 'https://api.paymongo.com/v1';
+const jsonParser = express.json();
 
 if (!PAYMONGO_SECRET_KEY) {
   throw new Error('Missing PAYMONGO_SECRET_KEY');
@@ -34,7 +35,13 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 }
 
-app.use(express.json());
+app.use('/webhooks/paymongo', express.raw({ type: 'application/json' }));
+app.use((req, res, next) => {
+  if (req.path.startsWith('/webhooks/paymongo')) {
+    return next();
+  }
+  return jsonParser(req, res, next);
+});
 app.use(productsRouter);
 
 type DemoAuthedRequest = Request & { rawBody?: Buffer };
@@ -294,9 +301,25 @@ app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: Authenticate
 
 app.post('/webhooks/paymongo', async (req, res) => {
   try {
-    console.log('[paymongo-webhook] HIT');
+    const signatureHeader = req.get('Paymongo-Signature');
+    if (!signatureHeader) {
+      console.log('[paymongo-webhook] SKIP invalid_signature', { hasSignature: false });
+      return res.sendStatus(400);
+    }
 
-    const payload = req.body;
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!rawBody || !verifyPaymongoSignature(signatureHeader, rawBody)) {
+      console.log('[paymongo-webhook] SKIP invalid_signature', { hasSignature: true });
+      return res.sendStatus(400);
+    }
+
+    let payload: any;
+    try {
+      payload = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      console.log('[paymongo-webhook] SKIP invalid_json');
+      return res.sendStatus(400);
+    }
 
     const eventId = payload?.data?.id;
     const eventType = payload?.data?.attributes?.type ?? payload?.data?.type ?? 'unknown';
@@ -306,33 +329,79 @@ app.post('/webhooks/paymongo', async (req, res) => {
     console.log('[paymongo-webhook] EVENT', { eventId, eventType });
 
     if (!eventId) {
-      console.error('[paymongo-webhook] Missing eventId');
-      return res.sendStatus(400);
+      console.log('[paymongo-webhook] SKIP', { eventId: null, reason: 'missing_event_id' });
+      return res.sendStatus(200);
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.webhookEvent.upsert({
+    const result = await prisma.$transaction(async (tx) => {
+      const existingEvent = await tx.webhookEvent.findUnique({
         where: { eventId },
-        update: {},
-        create: {
-          eventId,
-          type: eventType,
-          livemode,
-          payload,
-        },
+        select: { id: true },
       });
+      if (existingEvent) {
+        return { kind: 'skip' as const, reason: 'duplicate_event' as const };
+      }
+
+      try {
+        await tx.webhookEvent.create({
+          data: {
+            eventId,
+            type: eventType,
+            livemode,
+            payload,
+          },
+        });
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          console.log('[paymongo-webhook] SKIP duplicate_event_race', { eventId });
+          return { kind: 'skip' as const, reason: 'duplicate_event_race' as const };
+        }
+        throw error;
+      }
 
       if (eventType === 'checkout_session.payment.paid') {
         const checkoutSessionId = eventObject?.id as string | undefined;
-        if (!checkoutSessionId) return;
+        if (!checkoutSessionId) {
+          return {
+            kind: 'skip' as const,
+            reason: 'missing_checkout_session_id' as const,
+          };
+        }
 
         const payment = await tx.paymongoPayment.findUnique({
           where: { checkoutSessionId },
         });
 
         if (!payment) {
-          console.warn('[paymongo-webhook] Payment not found for session:', checkoutSessionId);
-          return;
+          return {
+            kind: 'skip' as const,
+            reason: 'payment_not_found' as const,
+            checkoutSessionId,
+          };
+        }
+
+        const order = await tx.paymentOrder.findUnique({
+          where: { id: payment.paymentOrderId },
+          select: { status: true },
+        });
+
+        if (!order) {
+          return {
+            kind: 'skip' as const,
+            reason: 'order_not_found' as const,
+            paymentOrderId: payment.paymentOrderId,
+            checkoutSessionId,
+          };
+        }
+
+        if (payment.status === 'paid' || order.status === 'paid') {
+          return {
+            kind: 'skip' as const,
+            reason: 'already_paid' as const,
+            paymentOrderId: payment.paymentOrderId,
+            checkoutSessionId,
+            paymongoPaymentId: payment.paymongoPaymentId ?? undefined,
+          };
         }
 
         const paidAtUnix = eventObject?.attributes?.paid_at;
@@ -345,8 +414,6 @@ app.post('/webhooks/paymongo', async (req, res) => {
           status: 'paid',
           paidAt,
         };
-        console.log('[paymongo-webhook] paymongoPayment.update keys:', Object.keys(data));
-        console.log('[paymongo-webhook] paymongoPayment.update data:', JSON.stringify(data));
 
         await tx.paymongoPayment.update({
           where: { id: payment.id },
@@ -360,13 +427,58 @@ app.post('/webhooks/paymongo', async (req, res) => {
           },
         });
 
-        console.log('[paymongo-webhook] Payment + order marked as paid');
+        return {
+          kind: 'marked_paid' as const,
+          paymentOrderId: payment.paymentOrderId,
+          checkoutSessionId,
+          paymongoPaymentId: payment.paymongoPaymentId ?? undefined,
+        };
       }
 
       if (eventType === 'payment.paid') {
         const payId = eventObject?.id as string | undefined;
         const backendOrderId = eventObject?.attributes?.metadata?.backendOrderId as string | undefined;
-        if (!backendOrderId) return;
+        if (!backendOrderId) {
+          return {
+            kind: 'skip' as const,
+            reason: 'missing_backend_order_id' as const,
+            paymongoPaymentId: payId ?? undefined,
+          };
+        }
+
+        const existingPayment = await tx.paymongoPayment.findUnique({
+          where: { paymentOrderId: backendOrderId },
+        });
+        if (!existingPayment) {
+          return {
+            kind: 'skip' as const,
+            reason: 'payment_not_found' as const,
+            paymentOrderId: backendOrderId,
+            paymongoPaymentId: payId ?? undefined,
+          };
+        }
+
+        const order = await tx.paymentOrder.findUnique({
+          where: { id: backendOrderId },
+          select: { status: true },
+        });
+        if (!order) {
+          return {
+            kind: 'skip' as const,
+            reason: 'order_not_found' as const,
+            paymentOrderId: backendOrderId,
+            paymongoPaymentId: payId ?? undefined,
+          };
+        }
+
+        if (existingPayment.status === 'paid' || order.status === 'paid') {
+          return {
+            kind: 'skip' as const,
+            reason: 'already_paid' as const,
+            paymentOrderId: backendOrderId,
+            paymongoPaymentId: existingPayment.paymongoPaymentId ?? payId ?? undefined,
+          };
+        }
 
         const paidAtUnix = eventObject?.attributes?.paid_at;
         const paidAt =
@@ -379,8 +491,6 @@ app.post('/webhooks/paymongo', async (req, res) => {
           status: 'paid',
           paidAt,
         };
-        console.log('[paymongo-webhook] paymongoPayment.update keys:', Object.keys(data));
-        console.log('[paymongo-webhook] paymongoPayment.update data:', JSON.stringify(data));
 
         await tx.paymongoPayment.update({
           where: { paymentOrderId: backendOrderId },
@@ -392,10 +502,33 @@ app.post('/webhooks/paymongo', async (req, res) => {
           data: { status: 'paid' },
         });
 
-        console.log('[paymongo-webhook] Payment + order marked as paid');
+        return {
+          kind: 'marked_paid' as const,
+          paymentOrderId: backendOrderId,
+          checkoutSessionId: existingPayment.checkoutSessionId,
+          paymongoPaymentId: payId ?? existingPayment.paymongoPaymentId ?? undefined,
+        };
       }
+
+      return { kind: 'skip' as const, reason: 'unknown_event_type' as const };
     });
 
+    if (result.kind === 'marked_paid') {
+      console.log('[paymongo-webhook] MARKED_PAID', {
+        eventId,
+        paymentOrderId: result.paymentOrderId,
+        checkoutSessionId: result.checkoutSessionId,
+        paymongoPaymentId: result.paymongoPaymentId,
+      });
+      return res.sendStatus(200);
+    }
+
+    console.log('[paymongo-webhook] SKIP', {
+      eventId,
+      reason: result.reason,
+      paymentOrderId: 'paymentOrderId' in result ? result.paymentOrderId : undefined,
+      checkoutSessionId: 'checkoutSessionId' in result ? result.checkoutSessionId : undefined,
+    });
     return res.sendStatus(200);
   } catch (err) {
     console.error('[paymongo-webhook] ERROR', err);
