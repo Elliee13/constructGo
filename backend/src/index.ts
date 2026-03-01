@@ -341,12 +341,16 @@ app.post('/webhooks/paymongo', async (req, res) => {
             ? new Date(paidAtUnix * 1000)
             : new Date();
 
+        const data: Prisma.PaymongoPaymentUpdateInput = {
+          status: 'paid',
+          paidAt,
+        };
+        console.log('[paymongo-webhook] paymongoPayment.update keys:', Object.keys(data));
+        console.log('[paymongo-webhook] paymongoPayment.update data:', JSON.stringify(data));
+
         await tx.paymongoPayment.update({
           where: { id: payment.id },
-          data: {
-            status: 'paid',
-            paidAt,
-          },
+          data,
         });
 
         await tx.paymentOrder.update({
@@ -370,13 +374,17 @@ app.post('/webhooks/paymongo', async (req, res) => {
             ? new Date(paidAtUnix * 1000)
             : new Date();
 
+        const data: Prisma.PaymongoPaymentUpdateInput = {
+          paymongoPaymentId: payId,
+          status: 'paid',
+          paidAt,
+        };
+        console.log('[paymongo-webhook] paymongoPayment.update keys:', Object.keys(data));
+        console.log('[paymongo-webhook] paymongoPayment.update data:', JSON.stringify(data));
+
         await tx.paymongoPayment.update({
           where: { paymentOrderId: backendOrderId },
-          data: {
-            paymongoPaymentId: payId,
-            status: 'paid',
-            paidAt,
-          },
+          data,
         });
 
         await tx.paymentOrder.update({
