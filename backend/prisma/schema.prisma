@@ -46,6 +46,14 @@ model PaymentOrder {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  // NEW: fulfillment
+  fulfillmentStatus String   @default("pending_approval")
+  storeId           String?
+  driverId          String?  @db.Uuid
+  approvedAt        DateTime?
+  assignedAt        DateTime?
+  deliveredAt       DateTime?
+
   payment PaymongoPayment?
 
   @@index([userId])
