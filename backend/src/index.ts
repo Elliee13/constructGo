@@ -299,9 +299,11 @@ app.post('/webhooks/paymongo', async (req, res) => {
     const payload = req.body;
 
     const eventId = payload?.data?.id;
-    const eventType = payload?.data?.type;
+    const eventType = payload?.data?.attributes?.type ?? payload?.data?.type ?? 'unknown';
     const livemode = payload?.data?.attributes?.livemode ?? false;
-    const checkoutSessionId = payload?.data?.attributes?.data?.id;
+    const eventObject = payload?.data?.attributes?.data;
+
+    console.log('[paymongo-webhook] EVENT', { eventId, eventType });
 
     if (!eventId) {
       console.error('[paymongo-webhook] Missing eventId');
@@ -314,13 +316,16 @@ app.post('/webhooks/paymongo', async (req, res) => {
         update: {},
         create: {
           eventId,
-          type: eventType ?? 'unknown',
+          type: eventType,
           livemode,
           payload,
         },
       });
 
-      if (eventType === 'checkout_session.paid' && checkoutSessionId) {
+      if (eventType === 'checkout_session.payment.paid') {
+        const checkoutSessionId = eventObject?.id as string | undefined;
+        if (!checkoutSessionId) return;
+
         const payment = await tx.paymongoPayment.findUnique({
           where: { checkoutSessionId },
         });
@@ -330,11 +335,17 @@ app.post('/webhooks/paymongo', async (req, res) => {
           return;
         }
 
+        const paidAtUnix = eventObject?.attributes?.paid_at;
+        const paidAt =
+          typeof paidAtUnix === 'number' && Number.isFinite(paidAtUnix)
+            ? new Date(paidAtUnix * 1000)
+            : new Date();
+
         await tx.paymongoPayment.update({
           where: { id: payment.id },
           data: {
             status: 'paid',
-            paidAt: new Date(),
+            paidAt,
           },
         });
 
@@ -343,6 +354,34 @@ app.post('/webhooks/paymongo', async (req, res) => {
           data: {
             status: 'paid',
           },
+        });
+
+        console.log('[paymongo-webhook] Payment + order marked as paid');
+      }
+
+      if (eventType === 'payment.paid') {
+        const payId = eventObject?.id as string | undefined;
+        const backendOrderId = eventObject?.attributes?.metadata?.backendOrderId as string | undefined;
+        if (!backendOrderId) return;
+
+        const paidAtUnix = eventObject?.attributes?.paid_at;
+        const paidAt =
+          typeof paidAtUnix === 'number' && Number.isFinite(paidAtUnix)
+            ? new Date(paidAtUnix * 1000)
+            : new Date();
+
+        await tx.paymongoPayment.update({
+          where: { paymentOrderId: backendOrderId },
+          data: {
+            paymongoPaymentId: payId,
+            status: 'paid',
+            paidAt,
+          },
+        });
+
+        await tx.paymentOrder.update({
+          where: { id: backendOrderId },
+          data: { status: 'paid' },
         });
 
         console.log('[paymongo-webhook] Payment + order marked as paid');
