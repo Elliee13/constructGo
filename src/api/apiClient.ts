@@ -23,11 +23,22 @@ const buildUrl = (path: string) => {
 export const apiRequest = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const url = buildUrl(path);
   const method = options.method ?? 'GET';
+  const hasBody = typeof options.body !== 'undefined';
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
 
   const token = getAccessToken();
+  const hasToken = Boolean(token);
+  if (__DEV__) {
+    console.log('[apiClient] REQUEST', {
+      method,
+      url,
+      hasToken,
+      tokenPrefix: token ? token.slice(0, 16) : null,
+      bodyPresent: hasBody,
+    });
+  }
   if (!token) {
     useProfileStore.getState().clear();
     await signOutSupabase();
@@ -35,13 +46,8 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
   }
   headers.Authorization = `Bearer ${token}`;
 
-  const hasBody = typeof options.body !== 'undefined';
   if (hasBody) {
     headers['Content-Type'] = 'application/json';
-  }
-
-  if (__DEV__) {
-    console.log('[apiClient] REQUEST', { method, url });
   }
 
   const response = await fetch(url, {
@@ -57,7 +63,7 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
     console.log('[apiClient] RESPONSE', { url, status: response.status, contentType: contentType || '<none>' });
   }
 
-  const preview = text.slice(0, 120);
+  const preview = text.slice(0, 160);
   if (!contentType.includes('application/json')) {
     if (__DEV__) {
       console.log('[apiClient] NON_JSON_PREVIEW', preview);
