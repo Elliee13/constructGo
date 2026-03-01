@@ -14,7 +14,6 @@ import Toast from '../components/Toast';
 import { useAppRoleStore } from '../stores/appRoleStore';
 import { useSupabaseAuthStore } from '../stores/supabaseAuthStore';
 import { useProfileStore } from '../stores/profileStore';
-import RoleSelectScreen from '../screens/role/RoleSelectScreen';
 import ComingSoonScreen from '../screens/role/ComingSoonScreen';
 
 const RootNavigator = () => {
@@ -57,7 +56,7 @@ const RootNavigator = () => {
     <>
       <NavigationContainer>
         {!appRole ? (
-          <RoleSelectScreen />
+          <AuthStack />
         ) : appRole === 'customer' ? (
           !hasCompletedOnboarding ? (
             <OnboardingStack />
