@@ -52,6 +52,14 @@ type CheckoutBody = {
   amountCents?: number;
 };
 
+type AssignDriverBody = {
+  driverId?: string;
+};
+
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isUuid = (value: string) => uuidRegex.test(value);
+
 const toValidAmountCents = (value: unknown): number => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -218,6 +226,27 @@ const extractPaymongoPaymentId = (resource: any): string | null => {
 const isPrismaUniqueConstraintError = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
+const paymentOrderFulfillmentSelect = {
+  id: true,
+  status: true,
+  fulfillmentStatus: true,
+  storeId: true,
+  driverId: true,
+  approvedAt: true,
+  assignedAt: true,
+  deliveredAt: true,
+  updatedAt: true,
+} as const;
+
+const ensureRole = async (userId: string, role: 'store_owner' | 'driver') => {
+  const profile = await prisma.profile.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+
+  return profile?.role === role;
+};
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -295,6 +324,153 @@ app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: Authenticate
     });
   } catch (error) {
     console.error('GET /orders/:backendOrderId failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.patch(
+  '/orders/:orderId/assign-driver',
+  requireSupabaseUser,
+  async (req: AuthenticatedRequest & Request<{ orderId: string }, {}, AssignDriverBody>, res) => {
+    try {
+      const requesterId = req.user!.id;
+      const hasRole = await ensureRole(requesterId, 'store_owner');
+      if (!hasRole) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const orderId = req.params.orderId?.trim();
+      const driverId = req.body.driverId?.trim();
+
+      if (!orderId || !isUuid(orderId)) {
+        res.status(400).json({ error: 'Invalid orderId' });
+        return;
+      }
+
+      if (!driverId || !isUuid(driverId)) {
+        res.status(400).json({ error: 'driverId is required and must be a UUID' });
+        return;
+      }
+
+      const driverProfile = await prisma.profile.findUnique({
+        where: { id: driverId },
+        select: { role: true },
+      });
+
+      if (driverProfile?.role !== 'driver') {
+        res.status(400).json({ error: 'driverId does not belong to a driver profile' });
+        return;
+      }
+
+      const order = await prisma.paymentOrder.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          status: true,
+          fulfillmentStatus: true,
+          approvedAt: true,
+        },
+      });
+
+      if (!order) {
+        res.status(404).json({ error: 'Order not found' });
+        return;
+      }
+
+      if (order.status !== 'paid') {
+        res.status(400).json({ error: 'Order must be paid before assigning a driver' });
+        return;
+      }
+
+      if (order.fulfillmentStatus === 'delivered') {
+        res.status(400).json({ error: 'Delivered orders cannot be reassigned' });
+        return;
+      }
+
+      const now = new Date();
+      const updateData: Prisma.PaymentOrderUpdateInput = {
+        fulfillmentStatus: 'assigned',
+        driverId,
+        assignedAt: now,
+      };
+      if (!order.approvedAt) {
+        updateData.approvedAt = now;
+      }
+
+      const updatedOrder = await prisma.paymentOrder.update({
+        where: { id: orderId },
+        data: updateData,
+        select: paymentOrderFulfillmentSelect,
+      });
+
+      console.log('[orders] ASSIGNED_DRIVER', { orderId, driverId });
+      res.json(updatedOrder);
+    } catch (error) {
+      console.error('PATCH /orders/:orderId/assign-driver failed', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+app.patch('/orders/:orderId/delivered', requireSupabaseUser, async (req: AuthenticatedRequest & Request<{ orderId: string }>, res) => {
+  try {
+    const requesterId = req.user!.id;
+    const hasRole = await ensureRole(requesterId, 'driver');
+    if (!hasRole) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    const orderId = req.params.orderId?.trim();
+    if (!orderId || !isUuid(orderId)) {
+      res.status(400).json({ error: 'Invalid orderId' });
+      return;
+    }
+
+    const order = await prisma.paymentOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        fulfillmentStatus: true,
+        driverId: true,
+      },
+    });
+
+    if (!order) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    if (order.driverId !== requesterId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    if (order.status !== 'paid') {
+      res.status(400).json({ error: 'Order must be paid before delivery' });
+      return;
+    }
+
+    if (order.fulfillmentStatus !== 'assigned') {
+      res.status(400).json({ error: 'Order must be assigned before delivery' });
+      return;
+    }
+
+    const updatedOrder = await prisma.paymentOrder.update({
+      where: { id: orderId },
+      data: {
+        fulfillmentStatus: 'delivered',
+        deliveredAt: new Date(),
+      },
+      select: paymentOrderFulfillmentSelect,
+    });
+
+    console.log('[orders] MARKED_DELIVERED', { orderId, driverId: requesterId });
+    res.json(updatedOrder);
+  } catch (error) {
+    console.error('PATCH /orders/:orderId/delivered failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
