@@ -292,149 +292,67 @@ app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: Authenticate
   }
 });
 
-app.post('/webhooks/paymongo', express.raw({ type: 'application/json' }), async (req: DemoAuthedRequest, res) => {
+app.post('/webhooks/paymongo', async (req, res) => {
   try {
-    console.log('[paymongo-webhook] HIT', new Date().toISOString());
-    try {
-      await prisma.webhookEvent.create({
-        data: {
-          eventId: crypto.randomUUID(),
-          type: 'debug_hit',
-          livemode: false,
-          payload: { hit: true, at: new Date().toISOString() },
+    console.log('[paymongo-webhook] HIT');
+
+    const payload = req.body;
+
+    const eventId = payload?.data?.id;
+    const eventType = payload?.data?.type;
+    const livemode = payload?.data?.attributes?.livemode ?? false;
+    const checkoutSessionId = payload?.data?.attributes?.data?.id;
+
+    if (!eventId) {
+      console.error('[paymongo-webhook] Missing eventId');
+      return res.sendStatus(400);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.webhookEvent.upsert({
+        where: { eventId },
+        update: {},
+        create: {
+          eventId,
+          type: eventType ?? 'unknown',
+          livemode,
+          payload,
         },
       });
-    } catch (error) {
-      console.error('[paymongo-webhook] debug insert failed', error);
-    }
-    return res.status(200).json({ ok: true, debug: true });
 
-    const signatureHeader =
-      req.header('paymongo-signature') ?? req.header('Paymongo-Signature') ?? '';
-    if (!Buffer.isBuffer(req.body)) {
-      res.status(400).json({ error: 'Invalid webhook body (expected raw buffer)' });
-      return;
-    }
-    const rawBody = req.body;
-    console.log('[paymongo-webhook] raw length:', rawBody?.length ?? 0);
-
-    if (!signatureHeader || !verifyPaymongoSignature(signatureHeader, rawBody)) {
-      res.status(401).json({ error: 'Invalid signature' });
-      return;
-    }
-
-    let payload: any;
-    try {
-      payload = JSON.parse(rawBody.toString('utf8'));
-    } catch {
-      res.status(400).json({ error: 'Invalid JSON payload' });
-      return;
-    }
-
-    const parsedId = payload?.id ?? payload?.data?.id;
-    const parsedType = payload?.type ?? payload?.data?.attributes?.type;
-    const parsedLivemode = payload?.livemode ?? payload?.data?.attributes?.livemode;
-    console.log('[paymongo-webhook] parsed', {
-      id: parsedId,
-      type: parsedType,
-      livemode: parsedLivemode,
-    });
-    if (!parsedId) {
-      console.error('[paymongo-webhook] payload keys:', Object.keys(payload ?? {}));
-    }
-
-    const { eventId, type, livemode, resource } = getEventCore(payload);
-
-    if (!eventId || !type) {
-      res.status(400).json({ error: 'Invalid webhook payload' });
-      return;
-    }
-    const eventIdSafe = eventId as string;
-    const typeSafe = type as string;
-
-    const backendOrderId = extractBackendOrderId(resource);
-    const checkoutSessionId = extractCheckoutSessionId(resource);
-    const paymongoPaymentId = extractPaymongoPaymentId(resource);
-    const loweredType = typeSafe.toLowerCase();
-    const isPaid = loweredType.includes('paid');
-    const isFailed = loweredType.includes('failed') || loweredType.includes('expired') || loweredType.includes('cancel');
-    const result = await prisma.$transaction(async (tx) => {
-      try {
-        await tx.webhookEvent.create({
-          data: {
-            eventId: eventIdSafe,
-            type: typeSafe,
-            livemode,
-            payload,
-          },
+      if (eventType === 'checkout_session.paid' && checkoutSessionId) {
+        const payment = await tx.paymongoPayment.findUnique({
+          where: { checkoutSessionId },
         });
-      } catch (error) {
-        if (isPrismaUniqueConstraintError(error)) {
-          return { deduped: true as const };
+
+        if (!payment) {
+          console.warn('[paymongo-webhook] Payment not found for session:', checkoutSessionId);
+          return;
         }
-        throw error;
-      }
 
-      let paymentOrderId: string | null = backendOrderId;
-
-      if (!paymentOrderId && checkoutSessionId) {
-        const payment = await tx.paymongoPayment.findUnique({ where: { checkoutSessionId } });
-        paymentOrderId = payment?.paymentOrderId ?? null;
-      }
-
-      if (!paymentOrderId) {
-        return { ignored: true as const, reason: 'No matching payment order' as const };
-      }
-
-      const currentOrder = await tx.paymentOrder.findUnique({ where: { id: paymentOrderId } });
-      if (!currentOrder) {
-        return { ignored: true as const, reason: 'Payment order not found' as const };
-      }
-
-      const orderAlreadyPaid = currentOrder.status === 'paid';
-
-      if (isPaid) {
-        await tx.paymentOrder.update({
-          where: { id: paymentOrderId },
-          data: { status: 'paid' },
-        });
         await tx.paymongoPayment.update({
-          where: { paymentOrderId },
+          where: { id: payment.id },
           data: {
             status: 'paid',
             paidAt: new Date(),
-            paymongoPaymentId: paymongoPaymentId ?? undefined,
           },
         });
-      } else if (isFailed && !orderAlreadyPaid) {
-        await tx.paymentOrder.update({
-          where: { id: paymentOrderId },
-          data: { status: 'failed' },
-        });
-        await tx.paymongoPayment.update({
-          where: { paymentOrderId },
-          data: {
-            status: 'failed',
-            paymongoPaymentId: paymongoPaymentId ?? undefined,
-          },
-        });
-      }
 
-      return { ok: true as const };
+        await tx.paymentOrder.update({
+          where: { id: payment.paymentOrderId },
+          data: {
+            status: 'paid',
+          },
+        });
+
+        console.log('[paymongo-webhook] Payment + order marked as paid');
+      }
     });
 
-    if (result.deduped) {
-      res.json({ ok: true, deduped: true });
-      return;
-    }
-    if (result.ignored) {
-      res.json({ ok: true, ignored: true, reason: result.reason });
-      return;
-    }
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('POST /webhooks/paymongo failed', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.sendStatus(200);
+  } catch (err) {
+    console.error('[paymongo-webhook] ERROR', err);
+    return res.sendStatus(500);
   }
 });
 
