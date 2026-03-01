@@ -22,6 +22,7 @@ const buildUrl = (path: string) => {
 
 export const apiRequest = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const url = buildUrl(path);
+  const method = options.method ?? 'GET';
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
@@ -39,14 +40,43 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
     headers['Content-Type'] = 'application/json';
   }
 
+  if (__DEV__) {
+    console.log('[apiClient] REQUEST', { method, url });
+  }
+
   const response = await fetch(url, {
-    method: options.method ?? 'GET',
+    method,
     headers,
     body: hasBody ? JSON.stringify(options.body) : undefined,
   });
 
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+
+  if (__DEV__) {
+    console.log('[apiClient] RESPONSE', { url, status: response.status, contentType: contentType || '<none>' });
+  }
+
+  const preview = text.slice(0, 120);
+  if (!contentType.includes('application/json')) {
+    if (__DEV__) {
+      console.log('[apiClient] NON_JSON_PREVIEW', preview);
+    }
+    if (response.status === 401) {
+      useProfileStore.getState().clear();
+      await signOutSupabase();
+    }
+    throw new Error(`Non-JSON response ${response.status} from ${url}; first chars: ${preview}`);
+  }
+
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Invalid JSON response ${response.status} from ${url}; first chars: ${preview}`);
+    }
+  }
 
   if (response.status === 401) {
     useProfileStore.getState().clear();
