@@ -34,7 +34,6 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 }
 
-app.use('/webhooks/paymongo', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(productsRouter);
 
@@ -293,22 +292,41 @@ app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: Authenticate
   }
 });
 
-app.post('/webhooks/paymongo', async (req: DemoAuthedRequest, res) => {
+app.post('/webhooks/paymongo', express.raw({ type: 'application/json' }), async (req: DemoAuthedRequest, res) => {
   try {
     const signatureHeader = req.header('paymongo-signature') ?? req.header('Paymongo-Signature');
-    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}));
+    if (!Buffer.isBuffer(req.body)) {
+      res.status(400).json({ error: 'Invalid webhook body (expected raw buffer)' });
+      return;
+    }
+    const rawBody = req.body;
+    console.log('[paymongo-webhook] raw length:', rawBody?.length ?? 0);
 
     if (!signatureHeader || !verifyPaymongoSignature(signatureHeader, rawBody)) {
       res.status(401).json({ error: 'Invalid signature' });
       return;
     }
 
-    const payload = JSON.parse(rawBody.toString('utf8'));
+    let payload: any;
+    try {
+      payload = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      res.status(400).json({ error: 'Invalid JSON payload' });
+      return;
+    }
+
+    const parsedId = payload?.id ?? payload?.data?.id;
+    const parsedType = payload?.type ?? payload?.data?.attributes?.type;
+    const parsedLivemode = payload?.livemode ?? payload?.data?.attributes?.livemode;
     console.log('[paymongo-webhook] parsed', {
-      id: payload?.id,
-      type: payload?.type,
-      livemode: payload?.livemode,
+      id: parsedId,
+      type: parsedType,
+      livemode: parsedLivemode,
     });
+    if (!parsedId) {
+      console.error('[paymongo-webhook] payload keys:', Object.keys(payload ?? {}));
+    }
+
     const { eventId, type, livemode, resource } = getEventCore(payload);
 
     if (!eventId || !type) {
