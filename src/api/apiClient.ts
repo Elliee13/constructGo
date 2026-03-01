@@ -1,7 +1,7 @@
-import { getAccessToken } from '../stores/supabaseAuthStore';
+import { getAccessToken, signOutSupabase } from '../stores/supabaseAuthStore';
+import { useProfileStore } from '../stores/profileStore';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-const DEMO_API_KEY = process.env.EXPO_PUBLIC_DEMO_API_KEY?.trim();
 
 if (__DEV__) {
   console.log('[apiClient] BASE_URL:', API_BASE_URL ?? '<missing>');
@@ -27,11 +27,12 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
   };
 
   const token = getAccessToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  } else if (__DEV__ && DEMO_API_KEY) {
-    headers.Authorization = `Bearer ${DEMO_API_KEY}`;
+  if (!token) {
+    useProfileStore.getState().clear();
+    await signOutSupabase();
+    throw new Error('Authentication required. Please sign in.');
   }
+  headers.Authorization = `Bearer ${token}`;
 
   const hasBody = typeof options.body !== 'undefined';
   if (hasBody) {
@@ -46,6 +47,11 @@ export const apiRequest = async <T>(path: string, options: RequestOptions = {}):
 
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
+
+  if (response.status === 401) {
+    useProfileStore.getState().clear();
+    await signOutSupabase();
+  }
 
   if (!response.ok) {
     const message = data?.error ?? `Request failed (${response.status})`;

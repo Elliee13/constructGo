@@ -1,6 +1,5 @@
-﻿import React from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { useAuthStore } from '../stores/authStore';
 import { useOnboardingStore } from '../stores/onboardingStore';
 import OnboardingStack from './OnboardingStack';
 import AuthStack from './AuthStack';
@@ -12,13 +11,9 @@ import StoreOwnerTabs from './StoreOwnerTabs';
 import AdminAuthStack from './AdminAuthStack';
 import AdminTabs from './AdminTabs';
 import Toast from '../components/Toast';
-import { useDriverAuthStore } from '../stores/driverAuthStore';
 import { useAppRoleStore } from '../stores/appRoleStore';
-import { useStoreOwnerAuthStore } from '../stores/storeOwnerAuthStore';
-import { useAdminAuthStore } from '../stores/adminAuthStore';
 import { useSupabaseAuthStore } from '../stores/supabaseAuthStore';
 import { useProfileStore } from '../stores/profileStore';
-import DevSessionBadge from '../components/DevSessionBadge';
 import RoleSelectScreen from '../screens/role/RoleSelectScreen';
 import ComingSoonScreen from '../screens/role/ComingSoonScreen';
 
@@ -26,10 +21,6 @@ const RootNavigator = () => {
   const appRole = useAppRoleStore((s) => s.appRole);
   const setRole = useAppRoleStore((s) => s.setRole);
   const hasCompletedOnboarding = useOnboardingStore((s) => s.hasCompletedOnboarding);
-  const customerLoggedIn = useAuthStore((s) => s.loggedIn);
-  const driverLoggedIn = useDriverAuthStore((s) => s.loggedIn);
-  const storeOwnerLoggedIn = useStoreOwnerAuthStore((s) => s.loggedIn);
-  const adminLoggedIn = useAdminAuthStore((s) => s.loggedIn);
   const supabaseUserId = useSupabaseAuthStore((s) => s.userId);
   const supabaseSessionReady = useSupabaseAuthStore((s) => s.isReady);
   const hasSupabaseSession = useSupabaseAuthStore((s) => s.isAuthenticated);
@@ -57,10 +48,10 @@ const RootNavigator = () => {
   const supabaseRoleLoggedIn = (role: 'customer' | 'driver' | 'store_owner' | 'admin') =>
     hasSupabaseSession && profileRole === role;
 
-  const customerAccess = customerLoggedIn || supabaseRoleLoggedIn('customer');
-  const driverAccess = driverLoggedIn || supabaseRoleLoggedIn('driver');
-  const storeOwnerAccess = storeOwnerLoggedIn || supabaseRoleLoggedIn('store_owner');
-  const adminAccess = adminLoggedIn || supabaseRoleLoggedIn('admin');
+  const customerAccess = supabaseRoleLoggedIn('customer');
+  const driverAccess = supabaseRoleLoggedIn('driver');
+  const storeOwnerAccess = supabaseRoleLoggedIn('store_owner');
+  const adminAccess = supabaseRoleLoggedIn('admin');
 
   return (
     <>
@@ -98,7 +89,6 @@ const RootNavigator = () => {
         )}
       </NavigationContainer>
       <Toast />
-      {__DEV__ ? <DevSessionBadge /> : null}
     </>
   );
 };

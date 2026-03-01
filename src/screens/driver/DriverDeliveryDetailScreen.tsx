@@ -32,6 +32,7 @@ import MapPlaceholder from '../../components/MapPlaceholder';
 import StatusPill from '../../components/ui/StatusPill';
 import CodBadge from '../../components/ui/CodBadge';
 import { formatPrice } from '../../utils/format';
+import { markOrderDelivered } from '../../api/ordersService';
 
 const requestDeclineReasons = ['Too far', 'Not available', 'Vehicle issue', 'Other'] as const;
 const cancelReasons = ['Customer not reachable', 'Address issue', 'Vehicle issue', 'Safety concern', 'Other'] as const;
@@ -145,15 +146,34 @@ const DriverDeliveryDetailScreen = () => {
     setBusyAction(null);
   };
 
-  const handleDelivered = () => {
+  const handleDelivered = async () => {
     if (busyAction === 'delivered') return;
     setBusyAction('delivered');
-    const ok = markDeliveredByDriver(order.id);
-    if (ok) {
-      creditFromDelivery(order);
-      showToast({ type: 'success', title: 'Marked as delivered', message: `${order.code} marked delivered.` });
+    try {
+      if (!order.backendOrderId) {
+        showToast({
+          type: 'warning',
+          title: 'Missing backend order',
+          message: 'This delivery has no backend order id.',
+        });
+        return;
+      }
+
+      await markOrderDelivered(order.backendOrderId);
+      const ok = markDeliveredByDriver(order.id);
+      if (ok) {
+        creditFromDelivery(order);
+        showToast({ type: 'success', title: 'Marked as delivered', message: `${order.code} marked delivered.` });
+      }
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: 'Unable to complete delivery',
+        message: error instanceof Error ? error.message : 'Request failed',
+      });
+    } finally {
+      setBusyAction(null);
     }
-    setBusyAction(null);
   };
 
   const handleConfirmReason = () => {
