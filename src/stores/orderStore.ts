@@ -8,6 +8,7 @@ import { useToastStore } from './toastStore';
 import { useDriverStore } from './driverStore';
 import { useProductStore } from './productStore';
 import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
+import { assignDriverToOrder } from '../api/ordersService';
 import type { DriverDecision, OrderActor, OrderStatus, PaymentMethod, PaymentStatus } from '../types/order';
 
 export type { OrderStatus } from '../types/order';
@@ -131,7 +132,7 @@ interface OrderState {
       driverDecision?: DriverDecision;
       declinedByDriverIds?: string[];
     }
-  ) => void;
+  ) => Promise<void>;
   attachPaymentMeta: (
     orderId: string,
     meta: {
@@ -172,6 +173,7 @@ const closedStatuses: OrderStatus[] = ['Delivered', 'Cancelled'];
 const customerCancelable = new Set<OrderStatus>(['Driver Requested', 'Pending', 'Processing', 'Preparing', 'Ready for Pickup']);
 const driverCancelable = new Set<OrderStatus>(['Driver Requested', 'Out for Delivery']);
 const storeOwnerCancelable = new Set<OrderStatus>(['Pending', 'Processing', 'Preparing', 'Ready for Pickup', 'Driver Requested']);
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const driverPool: Array<{
   id: string;
@@ -606,20 +608,70 @@ export const useOrderStore = create<OrderState>()(
           });
         }
       },
-      setDriverAssignment: (orderId, patch) => {
-        set({
-          orders: get().orders.map((order) =>
-            order.id === orderId
-              ? {
-                  ...order,
-                  assignedDriverId: patch.assignedDriverId,
-                  assignedDriverName: patch.assignedDriverName,
-                  driverDecision: patch.driverDecision ?? order.driverDecision,
-                  declinedByDriverIds: patch.declinedByDriverIds ?? order.declinedByDriverIds,
-                }
-              : order
-          ),
-        });
+      setDriverAssignment: async (orderId, patch) => {
+        const driverId = patch.assignedDriverId;
+        const targetOrder = get().orders.find((order) => order.id === orderId || order.backendOrderId === orderId);
+        const backendOrderId = targetOrder?.backendOrderId ?? (uuidRegex.test(orderId) ? orderId : undefined);
+
+        if (__DEV__) {
+          console.log('[UI] Assign Driver pressed', { orderId: backendOrderId ?? orderId, driverId: driverId ?? null });
+        }
+
+        if (!driverId) {
+          const message = 'Missing driverId for assignment';
+          if (__DEV__) {
+            console.log('[UI] Assign Driver failed', { message });
+          }
+          throw new Error(message);
+        }
+        if (!backendOrderId) {
+          const message = 'Missing backend order id for assignment';
+          if (__DEV__) {
+            console.log('[UI] Assign Driver failed', { message });
+          }
+          throw new Error(message);
+        }
+
+        try {
+          const response = await assignDriverToOrder(backendOrderId, driverId);
+
+          set({
+            orders: get().orders.map((order) =>
+              order.id === orderId || order.backendOrderId === response.id
+                ? {
+                    ...order,
+                    assignedDriverId: response.driverId ?? patch.assignedDriverId ?? order.assignedDriverId,
+                    assignedDriverName: patch.assignedDriverName ?? order.assignedDriverName,
+                    driverDecision:
+                      patch.driverDecision ?? (response.fulfillmentStatus === 'assigned' ? 'accepted' : order.driverDecision),
+                    declinedByDriverIds: patch.declinedByDriverIds ?? order.declinedByDriverIds,
+                    status:
+                      response.fulfillmentStatus === 'delivered'
+                        ? 'Delivered'
+                        : response.fulfillmentStatus === 'assigned'
+                          ? 'Out for Delivery'
+                          : order.status,
+                  }
+                : order
+            ),
+          });
+
+          if (__DEV__) {
+            console.log('[UI] Assign Driver success', {
+              id: response.id,
+              fulfillmentStatus: response.fulfillmentStatus,
+              driverId: response.driverId,
+              assignedAt: response.assignedAt,
+            });
+          }
+        } catch (error) {
+          if (__DEV__) {
+            console.log('[UI] Assign Driver failed', {
+              message: error instanceof Error ? error.message : 'Request failed',
+            });
+          }
+          throw error;
+        }
       },
       attachPaymentMeta: (orderId, meta) => {
         set({
