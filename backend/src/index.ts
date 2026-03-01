@@ -294,7 +294,23 @@ app.get('/orders/:backendOrderId', requireSupabaseUser, async (req: Authenticate
 
 app.post('/webhooks/paymongo', express.raw({ type: 'application/json' }), async (req: DemoAuthedRequest, res) => {
   try {
-    const signatureHeader = req.header('paymongo-signature') ?? req.header('Paymongo-Signature');
+    console.log('[paymongo-webhook] HIT', new Date().toISOString());
+    try {
+      await prisma.webhookEvent.create({
+        data: {
+          eventId: crypto.randomUUID(),
+          type: 'debug_hit',
+          livemode: false,
+          payload: { hit: true, at: new Date().toISOString() },
+        },
+      });
+    } catch (error) {
+      console.error('[paymongo-webhook] debug insert failed', error);
+    }
+    return res.status(200).json({ ok: true, debug: true });
+
+    const signatureHeader =
+      req.header('paymongo-signature') ?? req.header('Paymongo-Signature') ?? '';
     if (!Buffer.isBuffer(req.body)) {
       res.status(400).json({ error: 'Invalid webhook body (expected raw buffer)' });
       return;
@@ -333,19 +349,21 @@ app.post('/webhooks/paymongo', express.raw({ type: 'application/json' }), async 
       res.status(400).json({ error: 'Invalid webhook payload' });
       return;
     }
+    const eventIdSafe = eventId as string;
+    const typeSafe = type as string;
 
     const backendOrderId = extractBackendOrderId(resource);
     const checkoutSessionId = extractCheckoutSessionId(resource);
     const paymongoPaymentId = extractPaymongoPaymentId(resource);
-    const loweredType = type.toLowerCase();
+    const loweredType = typeSafe.toLowerCase();
     const isPaid = loweredType.includes('paid');
     const isFailed = loweredType.includes('failed') || loweredType.includes('expired') || loweredType.includes('cancel');
     const result = await prisma.$transaction(async (tx) => {
       try {
         await tx.webhookEvent.create({
           data: {
-            eventId,
-            type,
+            eventId: eventIdSafe,
+            type: typeSafe,
             livemode,
             payload,
           },
