@@ -127,6 +127,14 @@ const DriverDeliveryDetailScreen = () => {
 
   const customerName = (order as any).customerName ?? 'Juan Dela Cruz';
   const customerPhone = (order as any).customerPhone ?? '+63 917 000 0000';
+  const paymentMethod = (order.paymentMethod ?? '').toLowerCase();
+  const fallbackPayment = (order.payment ?? '').toLowerCase();
+  const paymentLabel =
+    paymentMethod === 'gcash' || fallbackPayment.includes('gcash')
+      ? 'GCash'
+      : paymentMethod === 'maya' || fallbackPayment.includes('maya')
+        ? 'Maya'
+        : 'COD';
   const canConfirmReason = selectedReason.length > 0 && (selectedReason !== 'Other' || reasonDetails.trim().length > 0);
   const reasons = reasonMode === 'cancel' ? cancelReasons : requestDeclineReasons;
 
@@ -347,7 +355,7 @@ const DriverDeliveryDetailScreen = () => {
                 <Text style={{ fontFamily: typography.fonts.semibold, fontSize: 13, color: colors.dark }}>{formatPrice(order.total)}</Text>
               </View>
               <View style={{ marginTop: 4 }}>
-                <CodBadge />
+                <CodBadge label={paymentLabel} />
               </View>
             </View>
           </View>
