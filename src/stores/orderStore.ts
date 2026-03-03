@@ -8,7 +8,7 @@ import { useToastStore } from './toastStore';
 import { useDriverStore } from './driverStore';
 import { useProductStore } from './productStore';
 import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
-import { assignDriverToOrder } from '../api/ordersService';
+import { acceptDriverForOrder, assignDriverToOrder } from '../api/ordersService';
 import type { DriverDecision, OrderActor, OrderStatus, PaymentMethod, PaymentStatus } from '../types/order';
 
 export type { OrderStatus } from '../types/order';
@@ -154,7 +154,7 @@ interface OrderState {
   togglePackedLine: (orderId: string, lineKey: string) => boolean;
   setPackedAll: (orderId: string, value: boolean) => boolean;
   sendToDrivers: (orderId: string) => boolean;
-  acceptDriverRequest: (orderId: string, driverId: string, driverName: string) => boolean;
+  acceptDriverRequest: (orderId: string, driverId: string, driverName: string) => Promise<boolean>;
   declineDriverRequest: (orderId: string, driverId: string, reason?: string) => boolean;
   markDeliveredByDriver: (orderId: string) => boolean;
   cancelOrder: (orderId: string, reason?: string, reasonDetails?: string, by?: OrderActor) => boolean;
@@ -1156,53 +1156,85 @@ export const useOrderStore = create<OrderState>()(
         addScopedNotification('store_owner', orderId, 'Sent to Drivers', `${target.code} moved to Driver Requested`, 'Driver Requested', 'store_send_driver');
         return true;
       },
-      acceptDriverRequest: (orderId, driverId, driverName) => {
+      acceptDriverRequest: async (orderId, driverId, driverName) => {
         const target = get().orders.find((order) => order.id === orderId);
         if (!target || target.status !== 'Driver Requested' || isClosed(target.status)) {
           useToastStore.getState().showToast({ type: 'warning', title: 'Action not allowed', message: 'Action not allowed' });
           return false;
         }
 
-        set({
-          orders: get().orders.map((order) =>
-            order.id === orderId
-              ? {
-                  ...order,
-                  assignedDriverId: driverId,
-                  assignedDriverName: driverName,
-                  driverDecision: 'accepted',
-                  status: 'Out for Delivery',
-                }
-              : order
-          ),
-        });
+        const backendOrderId = target.backendOrderId;
+        if (__DEV__) {
+          console.log('[UI] Driver accept pressed', { backendOrderId: backendOrderId ?? null });
+        }
 
-        addScopedNotification(
-          'customer',
-          orderId,
-          'Driver Assigned',
-          `${target.code} accepted by ${driverName}.`,
-          'Out for Delivery',
-          'driver_accepted'
-        );
-        addScopedNotification(
-          'driver',
-          orderId,
-          'Delivery Accepted',
-          `${target.code} accepted for delivery.`,
-          'Out for Delivery',
-          'driver_accepted'
-        );
-        addScopedNotification(
-          'store_owner',
-          orderId,
-          'Driver Accepted',
-          `${target.code} accepted by ${driverName}.`,
-          'Out for Delivery',
-          'driver_accepted'
-        );
+        if (!backendOrderId || !uuidRegex.test(backendOrderId)) {
+          const error = new Error('Missing backend order id for driver acceptance');
+          if (__DEV__) {
+            console.log('[UI] Driver accept failed', { message: error.message });
+          }
+          throw error;
+        }
 
-        return true;
+        try {
+          const response = await acceptDriverForOrder(backendOrderId);
+
+          set({
+            orders: get().orders.map((order) =>
+              order.id === orderId
+                ? {
+                    ...order,
+                    assignedDriverId: response.driverId ?? driverId,
+                    assignedDriverName: driverName,
+                    driverDecision: 'accepted',
+                    status: 'Out for Delivery',
+                  }
+                : order
+            ),
+          });
+
+          addScopedNotification(
+            'customer',
+            orderId,
+            'Driver Assigned',
+            `${target.code} accepted by ${driverName}.`,
+            'Out for Delivery',
+            'driver_accepted'
+          );
+          addScopedNotification(
+            'driver',
+            orderId,
+            'Delivery Accepted',
+            `${target.code} accepted for delivery.`,
+            'Out for Delivery',
+            'driver_accepted'
+          );
+          addScopedNotification(
+            'store_owner',
+            orderId,
+            'Driver Accepted',
+            `${target.code} accepted by ${driverName}.`,
+            'Out for Delivery',
+            'driver_accepted'
+          );
+
+          if (__DEV__) {
+            console.log('[UI] Driver accept success', {
+              id: response.id,
+              fulfillmentStatus: response.fulfillmentStatus,
+              driverId: response.driverId,
+            });
+          }
+
+          return true;
+        } catch (error) {
+          if (__DEV__) {
+            console.log('[UI] Driver accept failed', {
+              message: error instanceof Error ? error.message : 'Request failed',
+            });
+          }
+          throw error;
+        }
       },
       declineDriverRequest: (orderId, driverId, reason = 'Declined by driver') => {
         const target = get().orders.find((order) => order.id === orderId);

@@ -475,6 +475,76 @@ app.patch('/orders/:orderId/delivered', requireSupabaseUser, async (req: Authent
   }
 });
 
+app.patch('/orders/:orderId/accept-driver', requireSupabaseUser, async (req: AuthenticatedRequest & Request<{ orderId: string }>, res) => {
+  try {
+    const requesterId = req.user!.id;
+    const hasRole = await ensureRole(requesterId, 'driver');
+    if (!hasRole) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    const orderId = req.params.orderId?.trim();
+    if (!orderId || !isUuid(orderId)) {
+      res.status(400).json({ error: 'Invalid orderId' });
+      return;
+    }
+
+    const order = await prisma.paymentOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        fulfillmentStatus: true,
+        driverId: true,
+        approvedAt: true,
+      },
+    });
+
+    if (!order) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    if (order.status !== 'paid') {
+      res.status(400).json({ error: 'Order must be paid before driver acceptance' });
+      return;
+    }
+
+    if (order.driverId) {
+      res.status(400).json({ error: 'Order already has an assigned driver' });
+      return;
+    }
+
+    if (order.fulfillmentStatus !== 'pending_approval') {
+      res.status(400).json({ error: 'Order is not open for driver acceptance' });
+      return;
+    }
+
+    const now = new Date();
+    const updateData: Prisma.PaymentOrderUpdateInput = {
+      driverId: requesterId,
+      fulfillmentStatus: 'assigned',
+      assignedAt: now,
+    };
+    if (!order.approvedAt) {
+      updateData.approvedAt = now;
+    }
+
+    const updatedOrder = await prisma.paymentOrder.update({
+      where: { id: orderId },
+      data: updateData,
+      select: paymentOrderFulfillmentSelect,
+    });
+
+    console.log('[orders] ACCEPTED_DRIVER', { orderId, driverId: requesterId });
+    res.json(updatedOrder);
+  } catch (error) {
+    console.error('PATCH /orders/:orderId/accept-driver failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/webhooks/paymongo', async (req, res) => {
   try {
     const signatureHeader = req.get('Paymongo-Signature');

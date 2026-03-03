@@ -29,6 +29,11 @@ export const assignDriverToOrder = async (orderId: string, driverId: string) => 
   });
 };
 
+export const acceptDriverForOrder = async (orderId: string) =>
+  apiRequest<FulfillmentOrderResponse>(`/orders/${orderId}/accept-driver`, {
+    method: 'PATCH',
+  });
+
 export const markOrderDelivered = async (orderId: string) =>
   apiRequest<FulfillmentOrderResponse>(`/orders/${orderId}/delivered`, {
     method: 'PATCH',
