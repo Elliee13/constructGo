@@ -123,6 +123,14 @@ const OrderResultScreen = () => {
     accessoriesIncluded: false,
     packagingSecure: false,
   };
+  const paymentMethod = (order.paymentMethod ?? '').toLowerCase();
+  const fallbackPayment = (order.payment ?? '').toLowerCase();
+  const paymentLabel =
+    paymentMethod === 'gcash' || fallbackPayment.includes('gcash')
+      ? 'GCash'
+      : paymentMethod === 'maya' || fallbackPayment.includes('maya')
+        ? 'Maya'
+        : 'COD';
 
   const handleSubmitRating = () => {
     if (rating < 1) {
@@ -392,7 +400,7 @@ const OrderResultScreen = () => {
               </View>
               <View style={{ marginTop: 4, flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>Payment</Text>
-                <Text style={{ fontFamily: typography.fonts.medium, fontSize: 12, color: colors.dark }}>COD</Text>
+                <Text style={{ fontFamily: typography.fonts.medium, fontSize: 12, color: colors.dark }}>{paymentLabel}</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>Transaction ID</Text>

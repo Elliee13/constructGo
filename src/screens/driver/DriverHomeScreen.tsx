@@ -126,7 +126,7 @@ const DriverHomeScreen = () => {
                     TOTAL: {formatPrice(featuredRequest.total)}
                   </Text>
                   <View style={{ marginTop: 6, alignSelf: 'flex-start', borderRadius: 8, backgroundColor: '#FFF2C6', paddingHorizontal: 8, paddingVertical: 4 }}>
-                    <Text style={{ fontFamily: typography.fonts.medium, fontSize: 11, color: '#B37B00' }}>COD</Text>
+                    <Text style={{ fontFamily: typography.fonts.medium, fontSize: 11, color: '#B37B00' }}>{featuredRequest.payment}</Text>
                   </View>
                 </View>
               </View>

@@ -17,7 +17,7 @@ export type DriverDeliveryOrder = {
   subtotal: number;
   deliveryFee: number;
   total: number;
-  payment: 'COD';
+  payment: 'COD' | 'GCash' | 'Maya';
   customerName: string;
   address: string;
   status: DriverDeliveryStatus;
@@ -38,6 +38,14 @@ type DriverOrdersState = {
 };
 
 const getProduct = (productId?: string) => useProductStore.getState().products.find((item) => item.id === productId);
+
+const toPaymentLabel = (order: Order): 'COD' | 'GCash' | 'Maya' => {
+  const paymentMethod = (order.paymentMethod ?? '').toLowerCase();
+  const fallbackPayment = (order.payment ?? '').toLowerCase();
+  if (paymentMethod === 'gcash' || fallbackPayment.includes('gcash')) return 'GCash';
+  if (paymentMethod === 'maya' || fallbackPayment.includes('maya')) return 'Maya';
+  return 'COD';
+};
 
 const toDriverOrder = (order: Order, statusOverride?: DriverDeliveryStatus): DriverDeliveryOrder => {
   const firstItem = order.items[0];
@@ -63,7 +71,7 @@ const toDriverOrder = (order: Order, statusOverride?: DriverDeliveryStatus): Dri
     subtotal: order.subtotal,
     deliveryFee: order.deliveryFee + order.deliveryOptionFee,
     total: order.total,
-    payment: 'COD',
+    payment: toPaymentLabel(order),
     customerName: 'Customer',
     address: order.address,
     status: mappedStatus,
