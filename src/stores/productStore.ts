@@ -129,9 +129,10 @@ const toRemoteImageArray = (images: unknown, fallback: string[]) => {
 
 const hydrateFromRemote = (remote: RemoteProduct): Product => {
   const template = staticById.get(remote.id) ?? staticBySku.get(remote.sku);
-  const fallbackImages = template?.images ?? (template?.image ? [template.image] : []);
-  const remoteImages = toRemoteImageArray(remote.images, fallbackImages);
-  const remotePrimary = remote.imageUrl || remoteImages[0] || template?.image || '';
+  const templateImages = template?.images?.length ? template.images : template?.image ? [template.image] : [];
+  const hasTemplateImage = templateImages.length > 0;
+  const remoteImages = hasTemplateImage ? templateImages : toRemoteImageArray(remote.images, []);
+  const remotePrimary = hasTemplateImage ? templateImages[0] : remote.imageUrl || remoteImages[0] || '';
 
   const merged: Product = {
     ...(template ?? {
