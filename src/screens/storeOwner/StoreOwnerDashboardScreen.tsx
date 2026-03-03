@@ -31,7 +31,8 @@ const StoreOwnerDashboardScreen = () => {
 
   const recent = useMemo(() => orders.slice(0, 5), [orders]);
 
-  const getProductName = (productId?: string) => products.find((product) => product.id === productId)?.name ?? 'Hardware Item';
+  const getProductName = (productId?: string, productName?: string) =>
+    products.find((product) => product.id === productId)?.name ?? productName ?? 'Hardware Item';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.white, paddingTop: topInset }}>
@@ -104,7 +105,9 @@ const StoreOwnerDashboardScreen = () => {
                   onPress={() => navigation.navigate('Orders', { screen: 'StoreOwnerOrderDetail', params: { orderId: order.id } })}
                   style={{ borderWidth: 1, borderColor: colors.gray200, borderRadius: radii.lg, padding: 12 }}
                 >
-                  <Text style={{ fontFamily: typography.fonts.semibold, color: colors.dark }}>{getProductName(order.items[0]?.productId)}</Text>
+                  <Text style={{ fontFamily: typography.fonts.semibold, color: colors.dark }}>
+                    {getProductName(order.items[0]?.productId, order.items[0]?.productName)}
+                  </Text>
                   <Text style={{ marginTop: 2, fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>{order.code}</Text>
                   <View style={{ marginTop: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{formatPrice(order.total)}</Text>

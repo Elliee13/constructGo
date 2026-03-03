@@ -92,8 +92,8 @@ const DriverDeliveryDetailScreen = () => {
       const product = products.find((entry) => entry.id === item.productId);
       return {
         key: item.cartItemId,
-        name: product?.name ?? 'Hardware Item',
-        image: product?.images?.[0] ?? product?.image ?? '',
+        name: product?.name ?? item.productName ?? 'Hardware Item',
+        image: product?.images?.[0] ?? product?.image ?? item.productImage ?? 'https://dummyimage.com/96x96/e5e5e5/2c2c2c&text=tool',
         qty: item.qty,
         total: item.itemTotal,
         options: item.selectedOptions ?? [],

@@ -3,10 +3,11 @@ import { persist } from 'zustand/middleware';
 import { zustandStorage } from '../utils/storage';
 import type { CartItem, SelectedOption } from './cartStore';
 import { currentOrders, historyOrders } from '../data/orders';
+import { products as staticCatalogProducts } from '../data/products';
 import { useNotificationStore } from './notificationStore';
 import { useToastStore } from './toastStore';
 import { useDriverStore } from './driverStore';
-import { useProductStore } from './productStore';
+import { useProductStore, type Product } from './productStore';
 import { useStoreOwnerProfileStore } from './storeOwnerProfileStore';
 import { acceptDriverForOrder, assignDriverToOrder } from '../api/ordersService';
 import type { DriverDecision, OrderActor, OrderStatus, PaymentMethod, PaymentStatus } from '../types/order';
@@ -16,6 +17,9 @@ export type { OrderStatus } from '../types/order';
 export type OrderItem = {
   cartItemId: string;
   productId: string;
+  productSku?: string;
+  productName?: string;
+  productImage?: string;
   qty: number;
   selectedOptions?: SelectedOption[];
   unitPrice: number;
@@ -242,6 +246,27 @@ const pickDriver = (seedKey: string) => {
   return driverPool[hash % driverPool.length];
 };
 
+const staticProductsList = staticCatalogProducts as Product[];
+const staticProductById = new Map(staticProductsList.map((item) => [item.id, item]));
+const staticProductBySku = new Map(staticProductsList.map((item) => [item.sku, item]));
+
+const isMissingOrderItemName = (value?: string) => {
+  if (!value) return true;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length === 0 || normalized === 'order item' || normalized === 'item' || normalized === 'product';
+};
+
+const shouldReplaceOrderItemImage = (value?: string) => {
+  if (!value) return true;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return true;
+  return (
+    normalized.includes('dummyimage.com') ||
+    normalized.includes('placehold.co') ||
+    normalized.includes('loremflickr.com')
+  );
+};
+
 const normalizeStatus = (status?: string): OrderStatus => {
   if (status === 'Ready') return 'Ready for Pickup';
   if (!status) return 'Pending';
@@ -317,6 +342,7 @@ const normalizeOrder = (input: Partial<Order> & { id: string; code: string }): O
         : 'accepted');
 
   const normalizedItems = (input.items ?? []).map((item) => {
+    const staticProduct = staticProductById.get(item.productId) ?? (item.productSku ? staticProductBySku.get(item.productSku) : undefined);
     const qty = Math.max(1, item.qty ?? 1);
     const derivedUnitPrice =
       typeof item.unitPrice === 'number' && Number.isFinite(item.unitPrice)
@@ -324,8 +350,14 @@ const normalizeOrder = (input: Partial<Order> & { id: string; code: string }): O
         : qty > 0
           ? item.itemTotal / qty
           : 0;
+    const staticProductImage = staticProduct?.images?.[0] ?? staticProduct?.image;
+    const resolvedProductName = isMissingOrderItemName(item.productName) ? staticProduct?.name : item.productName;
+    const resolvedProductImage = shouldReplaceOrderItemImage(item.productImage) ? staticProductImage : item.productImage;
     return {
       ...item,
+      productSku: item.productSku ?? staticProduct?.sku,
+      productName: resolvedProductName,
+      productImage: resolvedProductImage,
       qty,
       unitPrice: derivedUnitPrice,
       itemTotal:
@@ -395,6 +427,9 @@ const seedOrders: Order[] = [...currentOrders, ...historyOrders].map((order) =>
       {
         cartItemId: `${order.id}-item`,
         productId: order.productId,
+        productSku: staticProductById.get(order.productId)?.sku,
+        productName: order.title,
+        productImage: staticProductById.get(order.productId)?.images?.[0] ?? staticProductById.get(order.productId)?.image,
         qty: order.quantity,
         unitPrice: order.quantity > 0 ? order.subtotal / order.quantity : order.subtotal,
         itemTotal: order.subtotal,
@@ -482,11 +517,16 @@ export const useOrderStore = create<OrderState>()(
         const orderId = `ord-${Date.now()}`;
         const code = `ORD-${new Date().getFullYear()}-${Math.floor(Math.random() * 900 + 100)}`;
         const driver = pickDriver(orderId);
+        const productMap = new Map(useProductStore.getState().products.map((product) => [product.id, product]));
         const items: OrderItem[] = cartItems.map((item) => {
+          const product = productMap.get(item.productId);
           const unitPrice = priceLookup(item.productId, item.selectedOptions);
           return {
             cartItemId: item.id,
             productId: item.productId,
+            productSku: product?.sku,
+            productName: product?.name,
+            productImage: product?.images?.[0] ?? product?.image,
             qty: item.qty,
             selectedOptions: item.selectedOptions,
             unitPrice,
@@ -921,6 +961,9 @@ export const useOrderStore = create<OrderState>()(
             ? {
                 ...item,
                 productId: substitute.id,
+                productSku: substitute.sku,
+                productName: substitute.name,
+                productImage: substitute.images?.[0] ?? substitute.image,
                 qty: proposedQty,
                 selectedOptions: undefined,
                 unitPrice: substitute.price,

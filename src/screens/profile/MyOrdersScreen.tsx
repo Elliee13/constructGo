@@ -71,7 +71,10 @@ const MyOrdersScreen = () => {
               </View>
             ) : (
               list.map((order) => {
-                const product = products.find((p) => p.id === order.items[0]?.productId);
+                const firstItem = order.items[0];
+                const product = products.find((p) => p.id === firstItem?.productId);
+                const itemImage = product?.image ?? firstItem?.productImage ?? 'https://placehold.co/80x80';
+                const itemName = product?.name ?? firstItem?.productName ?? 'Order item';
                 return (
                   <View key={order.id} style={{ borderWidth: 1, borderColor: colors.gray200, borderRadius: radii.lg, padding: 14 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -80,9 +83,9 @@ const MyOrdersScreen = () => {
                     </View>
 
                     <View style={{ marginTop: 12, flexDirection: 'row', gap: 12 }}>
-                      <Image source={{ uri: product?.image ?? 'https://placehold.co/80x80' }} style={{ width: 70, height: 70, borderRadius: 8, backgroundColor: colors.white }} />
+                      <Image source={{ uri: itemImage }} style={{ width: 70, height: 70, borderRadius: 8, backgroundColor: colors.white }} />
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: typography.fonts.semibold, fontSize: 14, color: colors.dark }}>{product?.name ?? 'Order item'}</Text>
+                        <Text style={{ fontFamily: typography.fonts.semibold, fontSize: 14, color: colors.dark }}>{itemName}</Text>
                         <Text style={{ marginTop: 4, fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>{order.code}</Text>
                         <Text style={{ marginTop: 6, fontFamily: typography.fonts.medium, fontSize: 12, color: colors.dark }}>
                           {formatPrice(order.total)} · {order.items.length} item(s)

@@ -87,7 +87,7 @@ const OrderResultScreen = () => {
       const product = products.find((entry) => entry.id === item.productId);
       return {
         key: item.cartItemId,
-        name: product?.name ?? 'Order Item',
+        name: product?.name ?? item.productName ?? 'Order Item',
         model: product?.model ?? '-',
         qty: item.qty,
         total: item.itemTotal,

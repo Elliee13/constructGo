@@ -155,10 +155,11 @@ const StoreOwnerOrderDetailScreen = () => {
             <View style={{ marginTop: 8, gap: 8 }}>
               {order.items.map((item) => {
                 const product = productMap.get(item.productId);
+                const productName = product?.name ?? item.productName ?? 'Item';
                 return (
                   <View key={item.cartItemId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{product?.name ?? 'Item'}</Text>
+                      <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{productName}</Text>
                       <Text style={{ marginTop: 2, fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>Qty: {item.qty}</Text>
                     </View>
                     <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{formatPrice(item.itemTotal)}</Text>
@@ -198,6 +199,8 @@ const StoreOwnerOrderDetailScreen = () => {
             <View style={{ marginTop: 10, gap: 10 }}>
               {order.items.map((item) => {
                 const product = productMap.get(item.productId);
+                const productImage = product?.image ?? item.productImage;
+                const productName = product?.name ?? item.productName ?? 'Item';
                 const packedQty = Math.min(item.qty, order.pack.items[item.cartItemId]?.packedQty ?? 0);
                 const substitution = order.substitutions[item.cartItemId];
                 const substitute = substitution?.substituteProductId ? productMap.get(substitution.substituteProductId) : undefined;
@@ -206,10 +209,10 @@ const StoreOwnerOrderDetailScreen = () => {
                   <View key={item.cartItemId} style={{ borderWidth: 1, borderColor: colors.gray200, borderRadius: 10, padding: 10 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <View style={{ width: 48, height: 48, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.white }}>
-                        {product?.image ? <Image source={{ uri: product.image }} style={{ width: '100%', height: '100%' }} /> : null}
+                        {productImage ? <Image source={{ uri: productImage }} style={{ width: '100%', height: '100%' }} /> : null}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{product?.name ?? 'Item'}</Text>
+                        <Text style={{ fontFamily: typography.fonts.medium, color: colors.dark }}>{productName}</Text>
                         <Text style={{ marginTop: 2, fontFamily: typography.fonts.regular, fontSize: 12, color: colors.gray600 }}>
                           x{item.qty}
                         </Text>

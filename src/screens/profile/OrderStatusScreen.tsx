@@ -407,7 +407,7 @@ const OrderStatusScreen = () => {
                   <View key={item.cartItemId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <View style={{ flex: 1, paddingRight: 8 }}>
                       <Text style={{ fontFamily: typography.fonts.regular, color: colors.dark }}>
-                        {product?.name ?? 'Item'} x{item.qty}
+                        {(product?.name ?? item.productName ?? 'Item')} x{item.qty}
                       </Text>
                       {item.selectedOptions && item.selectedOptions.length > 0 ? (
                         <Text style={{ marginTop: 2, fontFamily: typography.fonts.regular, fontSize: 11, color: colors.gray600 }}>

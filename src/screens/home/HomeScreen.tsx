@@ -225,12 +225,15 @@ const HomeScreen = () => {
               </View>
             ) : (
               recentOrders.slice(0, 2).map((order) => {
-                const productId = order.items[0]?.productId;
+                const firstItem = order.items[0];
+                const productId = firstItem?.productId;
                 const product = products.find((p) => p.id === productId);
+                const itemImage = product?.images?.[0] ?? product?.image ?? firstItem?.productImage ?? 'https://dummyimage.com/64x64/e5e5e5/2c2c2c&text=tool';
+                const itemName = product?.name ?? firstItem?.productName ?? 'Order item';
                 return (
                   <View key={order.id} style={{ marginTop: 14, flexDirection: 'row', gap: 12 }}>
                     <Image
-                      source={{ uri: product?.images?.[0] ?? product?.image ?? 'https://dummyimage.com/64x64/e5e5e5/2c2c2c&text=tool' }}
+                      source={{ uri: itemImage }}
                       style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: colors.white }}
                     />
                     <View style={{ flex: 1 }}>
@@ -238,7 +241,7 @@ const HomeScreen = () => {
                         {formatPrice(order.subtotal)}
                       </Text>
                       <Text style={{ marginTop: 2, fontFamily: typography.fonts.medium, fontSize: 14, color: colors.dark }}>
-                        {product?.name ?? 'Order item'}
+                        {itemName}
                       </Text>
                       <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
                         <View
