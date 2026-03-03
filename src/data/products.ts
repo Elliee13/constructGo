@@ -1,5 +1,5 @@
 import { getAvatarUrl, getProductImageUrl } from '../utils/image';
-import { localProductImages } from './productImages';
+import { localProductImages, localProductImagesBySku } from './productImages';
 
 export const categories = ['Tools', 'Electrical', 'Plumbing', 'Paint'];
 
@@ -620,6 +620,9 @@ const getGeneratedSeedImages = (seed: ProductSeed): string[] => {
 };
 
 const getSeedImages = (seed: ProductSeed): string[] => {
+  const localBySku = localProductImagesBySku[seed.sku];
+  if (localBySku && localBySku.length > 0) return [localBySku[0]];
+
   const local = localProductImages[seed.name];
   if (local && local.length > 0) return [local[0]];
 
