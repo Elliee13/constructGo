@@ -174,6 +174,9 @@ const customerCancelable = new Set<OrderStatus>(['Driver Requested', 'Pending', 
 const driverCancelable = new Set<OrderStatus>(['Driver Requested', 'Out for Delivery']);
 const storeOwnerCancelable = new Set<OrderStatus>(['Pending', 'Processing', 'Preparing', 'Ready for Pickup', 'Driver Requested']);
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uiTrace = (...args: unknown[]) => {
+  console.info('>>>> [UI_TRACE]', ...args);
+};
 
 const driverPool: Array<{
   id: string;
@@ -1157,22 +1160,37 @@ export const useOrderStore = create<OrderState>()(
         return true;
       },
       acceptDriverRequest: async (orderId, driverId, driverName) => {
+        uiTrace('CALLED_acceptDriverRequest_v1', { localOrderId: orderId, driverId });
         const target = get().orders.find((order) => order.id === orderId);
         if (!target || target.status !== 'Driver Requested' || isClosed(target.status)) {
+          uiTrace('DRIVER_ACCEPT_FAIL', {
+            localOrderId: orderId,
+            backendOrderId: target?.backendOrderId ?? null,
+            driverId,
+            fulfillmentStatus: null,
+            reason: 'action_not_allowed',
+          });
           useToastStore.getState().showToast({ type: 'warning', title: 'Action not allowed', message: 'Action not allowed' });
           return false;
         }
 
         const backendOrderId = target.backendOrderId;
-        if (__DEV__) {
-          console.log('[UI] Driver accept pressed', { backendOrderId: backendOrderId ?? null });
-        }
+        uiTrace('DRIVER_ACCEPT_START', {
+          localOrderId: orderId,
+          backendOrderId: backendOrderId ?? null,
+          driverId,
+          fulfillmentStatus: null,
+        });
 
         if (!backendOrderId || !uuidRegex.test(backendOrderId)) {
           const error = new Error('Missing backend order id for driver acceptance');
-          if (__DEV__) {
-            console.log('[UI] Driver accept failed', { message: error.message });
-          }
+          uiTrace('DRIVER_ACCEPT_FAIL', {
+            localOrderId: orderId,
+            backendOrderId: backendOrderId ?? null,
+            driverId,
+            fulfillmentStatus: null,
+            message: error.message,
+          });
           throw error;
         }
 
@@ -1218,21 +1236,22 @@ export const useOrderStore = create<OrderState>()(
             'driver_accepted'
           );
 
-          if (__DEV__) {
-            console.log('[UI] Driver accept success', {
-              id: response.id,
-              fulfillmentStatus: response.fulfillmentStatus,
-              driverId: response.driverId,
-            });
-          }
+          uiTrace('DRIVER_ACCEPT_SUCCESS', {
+            localOrderId: orderId,
+            backendOrderId,
+            driverId: response.driverId ?? driverId,
+            fulfillmentStatus: response.fulfillmentStatus,
+          });
 
           return true;
         } catch (error) {
-          if (__DEV__) {
-            console.log('[UI] Driver accept failed', {
-              message: error instanceof Error ? error.message : 'Request failed',
-            });
-          }
+          uiTrace('DRIVER_ACCEPT_FAIL', {
+            localOrderId: orderId,
+            backendOrderId,
+            driverId,
+            fulfillmentStatus: null,
+            message: error instanceof Error ? error.message : 'Request failed',
+          });
           throw error;
         }
       },
@@ -1287,11 +1306,25 @@ export const useOrderStore = create<OrderState>()(
         return true;
       },
       markDeliveredByDriver: (orderId) => {
+        uiTrace('CALLED_markDeliveredByDriver_v1', { localOrderId: orderId });
         const target = get().orders.find((order) => order.id === orderId);
         if (!target || target.status !== 'Out for Delivery') {
+          uiTrace('DRIVER_DELIVER_FAIL', {
+            localOrderId: orderId,
+            backendOrderId: target?.backendOrderId ?? null,
+            driverId: target?.assignedDriverId ?? null,
+            fulfillmentStatus: null,
+            reason: 'action_not_allowed',
+          });
           useToastStore.getState().showToast({ type: 'warning', title: 'Action not allowed', message: 'Action not allowed' });
           return false;
         }
+        uiTrace('DRIVER_DELIVER_START', {
+          localOrderId: orderId,
+          backendOrderId: target.backendOrderId ?? null,
+          driverId: target.assignedDriverId ?? null,
+          fulfillmentStatus: 'assigned',
+        });
 
         if (statusTimers[orderId]) {
           statusTimers[orderId].forEach((timer) => clearTimeout(timer));
@@ -1322,6 +1355,12 @@ export const useOrderStore = create<OrderState>()(
           'Delivered',
           'driver_delivered'
         );
+        uiTrace('DRIVER_DELIVER_SUCCESS', {
+          localOrderId: orderId,
+          backendOrderId: target.backendOrderId ?? null,
+          driverId: target.assignedDriverId ?? null,
+          fulfillmentStatus: 'delivered',
+        });
         addScopedNotification(
           'driver',
           orderId,
